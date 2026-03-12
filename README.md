@@ -183,6 +183,26 @@ phik --help
 
 ---
 
+## Development Setup
+
+For local development, use Python 3.11+ in a virtual environment:
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e .[dev]
+```
+
+Then run:
+
+```bash
+python -m pytest
+phik --help
+```
+
+---
+
 ## Primary commands
 
 ### Runtime overview
