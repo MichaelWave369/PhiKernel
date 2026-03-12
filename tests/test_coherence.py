@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from phik_coherence_v0_1_1 import (
+from phikernel.coherence import (
     CoherenceFrame,
     CoherenceService,
     CoherenceThresholds,
