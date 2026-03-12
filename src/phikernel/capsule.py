@@ -41,7 +41,7 @@ from cryptography.exceptions import InvalidSignature, InvalidTag
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from phik_anchor_v0_1_1 import (
+from phikernel.anchor import (
     AnchorManifest,
     AnchorVerificationError,
     StateAnchorService,
