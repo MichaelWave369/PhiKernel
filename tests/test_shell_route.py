@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from phik_anchor_v0_1_1 import StateAnchorService
-from phik_capsule_v0_1_1 import ContinuityCapsuleStore
-from phik_shell_v0_1_2 import PhiKernelShell, RuntimePaths
+from phikernel.anchor import StateAnchorService
+from phikernel.capsule import ContinuityCapsuleStore
+from phikernel.shell import PhiKernelShell, RuntimePaths
 
 
 @pytest.fixture

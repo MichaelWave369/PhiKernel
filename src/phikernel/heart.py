@@ -31,8 +31,8 @@ import tempfile
 import threading
 import time
 
-from phik_anchor_v0_1_1 import StateAnchorService
-from phik_capsule_v0_1_1 import ContinuityCapsuleStore
+from phikernel.anchor import StateAnchorService
+from phikernel.capsule import ContinuityCapsuleStore
 
 
 DEFAULT_HEART_VERSION = "0.1.1"
