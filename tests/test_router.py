@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from phik_router_v0_1_0 import (
+from phikernel.router import (
     CoachReply,
     CoachRouter,
     RouterError,
