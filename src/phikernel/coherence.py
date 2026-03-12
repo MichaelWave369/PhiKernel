@@ -277,12 +277,12 @@ class CoherenceService:
             return _clamp(observation.external_fragmentation_hint, 0.0, 1.0)
 
         score = 0.0
-        score += min(observation.pending_events / 25.0, 0.35)
-        score += min(observation.active_threads / 12.0, 0.20)
-        score += min(observation.unresolved_alerts / 6.0, 0.25)
+        score += min(observation.pending_events / 100.0, 0.16)
+        score += min(observation.active_threads / 40.0, 0.10)
+        score += min(observation.unresolved_alerts / 12.0, 0.14)
 
         if observation.last_checkpoint_age_seconds is not None:
-            score += min(observation.last_checkpoint_age_seconds / 3600.0, 0.20)
+            score += min(observation.last_checkpoint_age_seconds / 14400.0, 0.08)
         elif observation.capsule_store_configured and observation.capsule_count == 0:
             score += 0.08
 
@@ -291,7 +291,7 @@ class CoherenceService:
         if not observation.heartbeat_running:
             score += 0.08
         if observation.checkpoint_due:
-            score += 0.10
+            score += 0.03
 
         return _clamp(score, 0.0, 1.0)
 
@@ -301,10 +301,10 @@ class CoherenceService:
 
         value = self.C_star
         value -= fragmentation * 0.45
-        value += 0.06 if observation.anchor_valid else -0.12
-        value += 0.05 if observation.heartbeat_running else -0.06
-        value += 0.03 if observation.capsule_store_configured else 0.0
-        value += min(observation.capsule_count / 20.0, 0.05)
+        value += 0.02 if observation.anchor_valid else -0.12
+        value += 0.02 if observation.heartbeat_running else -0.06
+        value += 0.01 if observation.capsule_store_configured else 0.0
+        value += min(observation.capsule_count / 30.0, 0.02)
         value -= min(observation.unresolved_alerts / 8.0, 0.12)
         return _clamp(value, 0.0, 1.0)
 

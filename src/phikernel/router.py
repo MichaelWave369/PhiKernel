@@ -226,6 +226,32 @@ class CoachRouter:
                 ),
             )
 
+        if not heart_running:
+            return RouteDecision(
+                selected_coach="Titan",
+                route_reason="Pulse is offline; defaulting to the stabilizing coach.",
+                field_action=field_action,
+                field_band=field_band,
+                safe_to_proceed=True,
+                next_actions=(
+                    "Bring phik-heart online when possible.",
+                    "Continue with a narrow, grounded scope.",
+                ),
+            )
+
+        if not has_capsule:
+            return RouteDecision(
+                selected_coach="Titan",
+                route_reason="No continuity capsule exists yet; grounding and first continuity come first.",
+                field_action=field_action,
+                field_band=field_band,
+                safe_to_proceed=True,
+                next_actions=(
+                    "Seal the first working capsule.",
+                    "Then continue with coach-guided work.",
+                ),
+            )
+
         flow_keywords = self.registry["Flow"].prompt_keywords
         sage_keywords = self.registry["Sage"].prompt_keywords
 
@@ -252,32 +278,6 @@ class CoachRouter:
                 next_actions=(
                     "Surface the strongest pattern before expanding.",
                     "Summarize before acting if ambiguity remains.",
-                ),
-            )
-
-        if not heart_running:
-            return RouteDecision(
-                selected_coach="Titan",
-                route_reason="Pulse is offline; defaulting to the stabilizing coach.",
-                field_action=field_action,
-                field_band=field_band,
-                safe_to_proceed=True,
-                next_actions=(
-                    "Bring phik-heart online when possible.",
-                    "Continue with a narrow, grounded scope.",
-                ),
-            )
-
-        if not has_capsule:
-            return RouteDecision(
-                selected_coach="Titan",
-                route_reason="No continuity capsule exists yet; grounding and first continuity come first.",
-                field_action=field_action,
-                field_band=field_band,
-                safe_to_proceed=True,
-                next_actions=(
-                    "Seal the first working capsule.",
-                    "Then continue with coach-guided work.",
                 ),
             )
 
@@ -378,7 +378,10 @@ def load_bundle_from_args(args: argparse.Namespace) -> dict[str, Any]:
     elif args.bundle_json:
         data = json.loads(args.bundle_json)
     else:
-        raw = sys.stdin.read().strip()
+        try:
+            raw = sys.stdin.read().strip()
+        except OSError as exc:
+            raise RouterError("No think bundle provided. Use --bundle-file, --bundle-json, or stdin.") from exc
         if not raw:
             raise RouterError("No think bundle provided. Use --bundle-file, --bundle-json, or stdin.")
         data = json.loads(raw)

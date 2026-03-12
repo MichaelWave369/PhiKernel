@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from phik_anchor_v0_1_1 import StateAnchorService
-from phik_capsule_v0_1_1 import (
+from phikernel.anchor import StateAnchorService
+from phikernel.capsule import (
     CapsuleDecryptionError,
     ContinuityCapsuleStore,
 )
