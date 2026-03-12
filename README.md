@@ -203,6 +203,20 @@ phik --help
 
 ---
 
+## First Run
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .[dev]
+phik init --passphrase "change-me" --sovereign-name "Tal-Aren-Vox" --user-label "Ori"
+phik anchor show
+phik status
+phik ask "How should I begin?"
+```
+
+---
+
 ## Primary commands
 
 ### Runtime overview
