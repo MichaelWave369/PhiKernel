@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from phik_anchor_v0_1_1 import (
+from phikernel.anchor import (
     AnchorUnlockError,
     StateAnchorService,
 )

@@ -32,9 +32,9 @@ import json
 import sys
 import time
 
-from phik_anchor_v0_1_1 import AnchorNotInitializedError, StateAnchorService
-from phik_capsule_v0_1_1 import CapsuleNotFoundError, ContinuityCapsuleStore
-from phik_router_v0_1_0 import CoachReply, CoachRouter, render_reply
+from phikernel.anchor import AnchorNotInitializedError, StateAnchorService
+from phikernel.capsule import CapsuleNotFoundError, ContinuityCapsuleStore
+from phikernel.router import CoachReply, CoachRouter, render_reply
 
 
 DEFAULT_SHELL_VERSION = "0.1.2"
