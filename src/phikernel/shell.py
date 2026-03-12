@@ -32,8 +32,6 @@ import json
 import sys
 import time
 
-from phikernel.anchor import AnchorNotInitializedError, StateAnchorService
-from phikernel.capsule import CapsuleNotFoundError, ContinuityCapsuleStore
 from phikernel.router import CoachReply, CoachRouter, render_reply
 
 
@@ -59,11 +57,25 @@ class PhiKernelShell:
 
     def __init__(self, paths: RuntimePaths, router: CoachRouter | None = None) -> None:
         self.paths = paths
-        self.anchor_service = StateAnchorService(paths.anchor_root)
-        self.capsule_store = ContinuityCapsuleStore(paths.capsule_root, self.anchor_service)
+        self.anchor_service = None
+        self.capsule_store = None
+        self._anchor_not_initialized_error: type[Exception] | None = None
+        self._capsule_not_found_error: type[Exception] | None = None
         self.heart_status_file = paths.heart_root / "heart_status.json"
         self.coherence_frame_file = paths.coherence_root / "coherence_frame.json"
         self.router = router or CoachRouter()
+
+    def _ensure_runtime_services(self) -> None:
+        if self.anchor_service is not None and self.capsule_store is not None:
+            return
+
+        from phikernel.anchor import AnchorNotInitializedError, StateAnchorService
+        from phikernel.capsule import CapsuleNotFoundError, ContinuityCapsuleStore
+
+        self.anchor_service = StateAnchorService(self.paths.anchor_root)
+        self.capsule_store = ContinuityCapsuleStore(self.paths.capsule_root, self.anchor_service)
+        self._anchor_not_initialized_error = AnchorNotInitializedError
+        self._capsule_not_found_error = CapsuleNotFoundError
 
     def run(self, argv: list[str] | None = None) -> int:
         parser = self._build_parser()
@@ -95,6 +107,7 @@ class PhiKernelShell:
         return 0
 
     def cmd_status(self, args: argparse.Namespace) -> dict[str, Any]:
+        self._ensure_runtime_services()
         anchor = self._safe_anchor_status()
         heart = self._read_json_optional(self.heart_status_file)
         field = self._read_json_optional(self.coherence_frame_file)
@@ -121,9 +134,11 @@ class PhiKernelShell:
         return frame
 
     def cmd_anchor_show(self, args: argparse.Namespace) -> dict[str, Any]:
+        self._ensure_runtime_services()
         return self._safe_anchor_status(required=True)
 
     def cmd_capsule_list(self, args: argparse.Namespace) -> dict[str, Any]:
+        self._ensure_runtime_services()
         rows = self.capsule_store.list_capsules()
         return {
             "count": len(rows),
@@ -131,6 +146,7 @@ class PhiKernelShell:
         }
 
     def cmd_capsule_seal(self, args: argparse.Namespace) -> dict[str, Any]:
+        self._ensure_runtime_services()
         state = self._load_state_payload(args)
         capsule = self.capsule_store.seal(
             passphrase=args.passphrase,
@@ -154,12 +170,13 @@ class PhiKernelShell:
         }
 
     def cmd_capsule_restore(self, args: argparse.Namespace) -> dict[str, Any]:
+        self._ensure_runtime_services()
         try:
             state = self.capsule_store.rehydrate(
                 capsule_id=args.capsule_id,
                 passphrase=args.passphrase,
             )
-        except CapsuleNotFoundError as exc:
+        except self._capsule_not_found_error as exc:
             raise ShellError(str(exc)) from exc
 
         verification = self.capsule_store.verify_capsule(args.capsule_id)
@@ -173,13 +190,16 @@ class PhiKernelShell:
         }
 
     def cmd_think(self, args: argparse.Namespace) -> dict[str, Any]:
+        self._ensure_runtime_services()
         return self._build_think_bundle(args.prompt or "")
 
     def cmd_route(self, args: argparse.Namespace) -> CoachReply:
+        self._ensure_runtime_services()
         bundle = self._build_think_bundle(args.prompt or "")
         return self.router.route(bundle)
 
     def cmd_ask(self, args: argparse.Namespace) -> CoachReply:
+        self._ensure_runtime_services()
         bundle = self._build_think_bundle(args.prompt or "")
         return self.router.route(bundle)
 
@@ -401,7 +421,7 @@ class PhiKernelShell:
     def _safe_anchor_status(self, *, required: bool = False) -> dict[str, Any] | None:
         try:
             return self.anchor_service.public_status()
-        except AnchorNotInitializedError:
+        except self._anchor_not_initialized_error:
             if required:
                 raise ShellError("No anchor is initialized at the configured anchor root.")
             return None
