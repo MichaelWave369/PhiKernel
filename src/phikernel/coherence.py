@@ -44,6 +44,8 @@ import tempfile
 import time
 import uuid
 
+from phikernel import __version__ as PHIKERNEL_VERSION
+
 
 DEFAULT_COHERENCE_VERSION = "0.1.1"
 PHI = (1 + sqrt(5)) / 2
@@ -397,6 +399,36 @@ def _chmod_owner_only(path: Path) -> None:
 
 def _clamp(value: float, lower: float, upper: float) -> float:
     return max(lower, min(upper, float(value)))
+
+
+def normalize_runtime_result(raw: dict[str, Any], *, adapter: str, mode: str) -> dict[str, Any]:
+    """Map adapter-specific runtime output to the stable PhiKernel contract."""
+    profile = raw.get("profile") or {}
+    state = raw.get("state") or {}
+    recommendation = raw.get("recommendation") or {}
+    null_result = raw.get("null_result") or {}
+
+    return {
+        "engine": "phikernel",
+        "engine_version": PHIKERNEL_VERSION,
+        "substrate": raw.get("substrate", "legacy"),
+        "substrate_version": raw.get("substrate_version", "0"),
+        "adapter": adapter,
+        "mode": mode,
+        "verdict": profile.get("oversoul_verdict", "UNAVAILABLE"),
+        "evidence_level": profile.get("evidence_level", "UNKNOWN"),
+        "coherence_score": float(profile.get("oversoul_coherence", 0.0)),
+        "stability_score": float(profile.get("manifold_stability", 0.0)),
+        "readiness_score": float(state.get("manifold_readiness", 0.0)),
+        "risk_score": float(state.get("manifold_risk", 1.0)),
+        "null_result": null_result,
+        "recommendation": recommendation,
+        "debug": {
+            "profile": profile,
+            "state": state,
+            **(raw.get("debug") or {}),
+        },
+    }
 
 
 if __name__ == "__main__":
