@@ -217,6 +217,21 @@ phik ask "How should I begin?"
 
 ---
 
+### Pulse once (one-shot runtime cycle)
+
+```bash
+phik init --passphrase "change-me" --sovereign-name "Tal-Aren-Vox" --user-label "Ori"
+phik pulse once
+phik field
+phik ask "How should I begin?"
+```
+
+Checkpoint mode:
+
+```bash
+phik pulse once --checkpoint --passphrase "change-me"
+```
+
 ## Primary commands
 
 ### Runtime overview

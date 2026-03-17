@@ -111,6 +111,93 @@ class PhiKernelShell:
             },
         }
 
+    def cmd_pulse_once(self, args: argparse.Namespace) -> dict[str, Any]:
+        self.paths.runtime_root.mkdir(parents=True, exist_ok=True)
+        self.paths.anchor_root.mkdir(parents=True, exist_ok=True)
+        self.paths.capsule_root.mkdir(parents=True, exist_ok=True)
+        self.paths.heart_root.mkdir(parents=True, exist_ok=True)
+        self.paths.coherence_root.mkdir(parents=True, exist_ok=True)
+        self._ensure_runtime_services()
+
+        _ = self._safe_anchor_status(required=True)
+
+        if args.checkpoint and not args.passphrase:
+            raise ShellError("pulse once --checkpoint requires --passphrase")
+
+        from phikernel.coherence import CoherenceService
+        from phikernel.heart import HeartbeatService
+
+        coherence_service = CoherenceService(self.paths.coherence_root)
+
+        def coherence_state_provider() -> dict[str, Any]:
+            anchor_status = self.anchor_service.public_status()
+            capsules = self.capsule_store.list_capsules()
+            return {
+                "anchor_id": anchor_status["anchor_id"],
+                "anchor_valid": anchor_status["verification"]["valid"],
+                "heartbeat_running": True,
+                "capsule_store_configured": True,
+                "capsule_count": len(capsules),
+                "active_threads": 1,
+                "pending_events": 0,
+                "unresolved_alerts": 0,
+                "last_checkpoint_age_seconds": 0.0,
+                "checkpoint_due": False,
+                "notes": ["pulse once"],
+            }
+
+        coherence_provider = coherence_service.make_heart_provider(coherence_state_provider)
+
+        heart = HeartbeatService(
+            self.paths.heart_root,
+            anchor_service=self.anchor_service,
+            capsule_store=self.capsule_store,
+        )
+
+        checkpoint_capsule_id = None
+        checkpoint_state_provider = None
+        if args.checkpoint:
+            def checkpoint_state_provider() -> dict[str, Any]:
+                return {
+                    "pulse": "once",
+                    "reason": "operator-requested checkpoint",
+                    "captured_at": time.time(),
+                }
+
+        heart.install_default_jobs(
+            passphrase=args.passphrase if args.checkpoint else None,
+            checkpoint_state_provider=checkpoint_state_provider,
+            coherence_provider=coherence_provider,
+            checkpoint_interval_seconds=0.000001,
+        )
+
+        results = heart.run_due_jobs_once()
+        if args.checkpoint and not any(r.job_name == "checkpoint_capsule" for r in results):
+            results.extend(heart.run_due_jobs_once())
+
+        anchor_verification = self.anchor_service.verify_anchor()
+        frame = self._read_json_optional(self.coherence_frame_file) or {}
+        heart_status = self._read_json_optional(self.heart_status_file) or {}
+
+        for result in results:
+            if result.job_name == "checkpoint_capsule" and result.success:
+                checkpoint_capsule_id = result.output.get("capsule_id")
+
+        payload = {
+            "anchor_verification": {
+                "valid": anchor_verification.valid,
+                "reason": anchor_verification.reason,
+            },
+            "recommended_field_action": frame.get("recommended_action"),
+            "drift_band": frame.get("drift_band"),
+            "heart_status_written": self.heart_status_file.exists(),
+            "coherence_frame_written": self.coherence_frame_file.exists(),
+            "heart_running": heart_status.get("running"),
+        }
+        if checkpoint_capsule_id:
+            payload["capsule_id"] = checkpoint_capsule_id
+        return payload
+
     def run(self, argv: list[str] | None = None) -> int:
         parser = self._build_parser()
         args = parser.parse_args(argv)
@@ -292,6 +379,13 @@ class PhiKernelShell:
         )
         init.set_defaults(handler=self.cmd_init)
 
+        pulse = subparsers.add_parser("pulse", help="Pulse commands")
+        pulse_sub = pulse.add_subparsers(dest="pulse_command", required=True)
+        pulse_once = pulse_sub.add_parser("once", help="Run one deterministic maintenance cycle")
+        pulse_once.add_argument("--checkpoint", action="store_true", help="Also seal one checkpoint capsule")
+        pulse_once.add_argument("--passphrase", default=None, help="Anchor passphrase (required with --checkpoint)")
+        pulse_once.set_defaults(handler=self.cmd_pulse_once)
+
         status = subparsers.add_parser("status", help="Show aggregate PhiKernel status")
         status.set_defaults(handler=self.cmd_status)
 
@@ -348,6 +442,8 @@ class PhiKernelShell:
             return self._render_status(result)
         if command == "init":
             return self._render_init(result)
+        if command == "pulse" and args.pulse_command == "once":
+            return self._render_pulse_once(result)
         if command == "field":
             return self._render_field(result)
         if command == "anchor":
@@ -398,6 +494,20 @@ class PhiKernelShell:
                 f"Verified: {verification.get('valid')} ({verification.get('reason')})",
             ]
         )
+
+    def _render_pulse_once(self, result: dict[str, Any]) -> str:
+        verification = result.get("anchor_verification") or {}
+        lines = [
+            ":: PHIKERNEL PULSE ONCE ::",
+            f"Anchor Verified: {verification.get('valid')} ({verification.get('reason')})",
+            f"Field Action: {result.get('recommended_field_action')}",
+            f"Drift Band: {result.get('drift_band')}",
+            f"Heart Status Written: {result.get('heart_status_written')}",
+            f"Coherence Frame Written: {result.get('coherence_frame_written')}",
+        ]
+        if result.get("capsule_id"):
+            lines.append(f"Checkpoint Capsule: {result.get('capsule_id')}")
+        return "\n".join(lines)
 
     def _render_field(self, frame: dict[str, Any]) -> str:
         lines = [
