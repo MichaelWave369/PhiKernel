@@ -31,6 +31,7 @@ import tempfile
 import threading
 import time
 
+from phikernel import __version__ as PHIKERNEL_VERSION
 from phikernel.anchor import StateAnchorService
 from phikernel.capsule import ContinuityCapsuleStore
 
@@ -108,6 +109,81 @@ class HeartJobResult:
     error: str | None = None
 
 
+
+
+@dataclass(frozen=True)
+class RuntimeExecutionResult:
+    """Stable runtime execution envelope for shell/PhiOS consumers."""
+
+    engine: str
+    engine_version: str
+    substrate: str
+    substrate_version: str
+    adapter: str
+    mode: str
+    verdict: str
+    evidence_level: str
+    coherence_score: float
+    stability_score: float
+    readiness_score: float
+    risk_score: float
+    null_result: dict[str, Any]
+    recommendation: dict[str, Any]
+    debug: dict[str, Any]
+
+    def to_record(self) -> dict[str, Any]:
+        return {
+            "engine": self.engine,
+            "engine_version": self.engine_version,
+            "substrate": self.substrate,
+            "substrate_version": self.substrate_version,
+            "adapter": self.adapter,
+            "mode": self.mode,
+            "verdict": self.verdict,
+            "evidence_level": self.evidence_level,
+            "coherence_score": self.coherence_score,
+            "stability_score": self.stability_score,
+            "readiness_score": self.readiness_score,
+            "risk_score": self.risk_score,
+            "null_result": self.null_result,
+            "recommendation": self.recommendation,
+            "debug": self.debug,
+        }
+
+
+class RuntimeBridge:
+    """Adapter-driven runtime execution bridge."""
+
+    def execute(self, payload: dict[str, Any], *, adapter: str, mode: str) -> RuntimeExecutionResult:
+        if adapter == "legacy":
+            normalized = {
+                "engine": "phikernel",
+                "engine_version": PHIKERNEL_VERSION,
+                "substrate": "legacy",
+                "substrate_version": "0",
+                "adapter": "legacy",
+                "mode": mode,
+                "verdict": "LEGACY_NOOP",
+                "evidence_level": "L1_PREDICTION",
+                "coherence_score": 0.0,
+                "stability_score": 0.0,
+                "readiness_score": 0.0,
+                "risk_score": 1.0,
+                "null_result": {},
+                "recommendation": {"cohort_guidance": "Legacy path selected; no v50 analysis executed."},
+                "debug": {"input_keys": sorted(payload.keys()), "legacy": True},
+            }
+            return RuntimeExecutionResult(**normalized)
+
+        if adapter == "tiekat_v50":
+            from phikernel.coherence import normalize_runtime_result
+            from phikernel.tiekat_v50 import analyze
+
+            raw = analyze(payload)
+            normalized = normalize_runtime_result(raw, adapter=adapter, mode=mode)
+            return RuntimeExecutionResult(**normalized)
+
+        raise HeartbeatError(f"Unsupported runtime adapter '{adapter}'")
 @dataclass(frozen=True)
 class HeartbeatStatus:
     """Public status surface safe for shell / monitoring consumption."""

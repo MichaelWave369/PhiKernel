@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 import argparse
 import json
+import os
 import sys
 import time
 
@@ -43,6 +44,9 @@ import time
 ROUTER_VERSION = "0.1.0"
 VALID_ACTIONS = {"observe", "checkpoint", "restore", "alert"}
 VALID_COACHES = {"Titan", "Flow", "Sage"}
+DEFAULT_RUNTIME_ADAPTER = "legacy"
+RUNTIME_ADAPTER_ENV = "PHIKERNEL_ADAPTER"
+VALID_RUNTIME_ADAPTERS = {"legacy", "tiekat_v50"}
 
 
 class RouterError(Exception):
@@ -161,6 +165,7 @@ class CoachRouter:
                 "prompt_length": len(prompt),
             },
         )
+
 
     def _decide(
         self,
@@ -335,6 +340,15 @@ class CoachRouter:
             )
 
         raise RouterError(f"No response composer for coach '{coach.name}'")
+
+
+
+def select_runtime_adapter(adapter: str | None = None) -> str:
+    """Resolve runtime adapter from explicit input or safe env-gated selection."""
+    selected = (adapter or "").strip() or os.getenv(RUNTIME_ADAPTER_ENV, DEFAULT_RUNTIME_ADAPTER).strip()
+    if selected not in VALID_RUNTIME_ADAPTERS:
+        return DEFAULT_RUNTIME_ADAPTER
+    return selected
 
 
 def build_default_registry() -> dict[str, CoachProfile]:

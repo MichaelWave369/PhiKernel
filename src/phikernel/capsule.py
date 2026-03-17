@@ -464,6 +464,25 @@ class ContinuityCapsuleStore:
         return f"{anchor_id}:{capsule_id}".encode("utf-8")
 
 
+
+
+def export_result_payload(payload: dict[str, Any]) -> str:
+    """Serialize a runtime result payload in a stable capsule-safe form."""
+    if not isinstance(payload, dict):
+        raise ContinuityCapsuleError("Result payload must be a dict")
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def import_result_payload(payload_text: str) -> dict[str, Any]:
+    """Deserialize a runtime result payload from capsule-safe serialized text."""
+    try:
+        payload = json.loads(payload_text)
+    except json.JSONDecodeError as exc:
+        raise ContinuityCapsuleError("Result payload is not valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise ContinuityCapsuleError("Result payload must decode to a dict")
+    return payload
+
 def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(

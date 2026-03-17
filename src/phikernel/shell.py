@@ -32,7 +32,7 @@ import json
 import sys
 import time
 
-from phikernel.router import CoachReply, CoachRouter, render_reply
+from phikernel.router import CoachReply, CoachRouter, render_reply, select_runtime_adapter
 
 
 DEFAULT_SHELL_VERSION = "0.1.2"
@@ -65,6 +65,7 @@ class PhiKernelShell:
         self.heart_status_file = paths.heart_root / "heart_status.json"
         self.coherence_frame_file = paths.coherence_root / "coherence_frame.json"
         self.router = router or CoachRouter()
+        self.runtime_bridge = None
 
     def _ensure_runtime_services(self) -> None:
         if self.anchor_service is not None and self.capsule_store is not None:
@@ -75,6 +76,9 @@ class PhiKernelShell:
 
         self.anchor_service = StateAnchorService(self.paths.anchor_root)
         self.capsule_store = ContinuityCapsuleStore(self.paths.capsule_root, self.anchor_service)
+        from phikernel.heart import RuntimeBridge
+
+        self.runtime_bridge = RuntimeBridge()
         self._anchor_not_initialized_error = AnchorNotInitializedError
         self._anchor_already_exists_error = AnchorAlreadyExistsError
         self._capsule_not_found_error = CapsuleNotFoundError
@@ -324,6 +328,48 @@ class PhiKernelShell:
         bundle = self._build_think_bundle(args.prompt or "")
         return self.router.route(bundle)
 
+    def cmd_execute(self, args: argparse.Namespace) -> dict[str, Any]:
+        self._ensure_runtime_services()
+        adapter = select_runtime_adapter(getattr(args, "adapter", None))
+        mode = "sessions"
+        payload: dict[str, Any]
+        if args.json_file and args.json_text:
+            raise ShellError("Use either --json-file or --json-text for execute, not both")
+
+        if args.json_file:
+            execute_path = Path(args.json_file)
+            if not execute_path.exists():
+                raise ShellError(f"JSON file not found: {execute_path}")
+            with execute_path.open("r", encoding="utf-8") as fh:
+                payload = json.load(fh)
+        elif args.json_text:
+            payload = json.loads(args.json_text)
+        else:
+            payload = {}
+
+        if not isinstance(payload, dict):
+            raise ShellError("execute payload must decode to a JSON object")
+
+        if not payload:
+            bundle = self._build_think_bundle(args.prompt or "")
+            payload = {
+                "cohort_id": "C0",
+                "field_session": {
+                    "cohort_id": "C0",
+                    "session_n": 1,
+                    "member_ids": ["anchor"],
+                    "member_CI": {"anchor": 0.0},
+                    "member_dS": {"anchor": 1.0},
+                    "notes": bundle.get("next_hint", ""),
+                },
+                "shell_bundle": bundle,
+            }
+            mode = "shell_bridge"
+
+        result = self.runtime_bridge.execute(payload, adapter=adapter, mode=mode)
+        return result.to_record()
+
+
     def _build_think_bundle(self, prompt: str) -> dict[str, Any]:
         """Build the local context bundle used by `think`, `route`, and `ask`."""
         anchor = self._safe_anchor_status()
@@ -426,6 +472,13 @@ class PhiKernelShell:
         think = subparsers.add_parser("think", help="Build a local context bundle for future orchestration")
         think.add_argument("prompt", nargs="?", default="", help="Optional operator prompt")
         think.set_defaults(handler=self.cmd_think)
+
+        execute = subparsers.add_parser("execute", help="Execute runtime analysis via selected adapter")
+        execute.add_argument("--adapter", default=None, help="Runtime adapter (legacy or tiekat_v50)")
+        execute.add_argument("--json-file", default=None, help="JSON payload file for runtime execution")
+        execute.add_argument("--json-text", default=None, help="Inline JSON payload for runtime execution")
+        execute.add_argument("prompt", nargs="?", default="", help="Optional prompt used by shell bridge mode")
+        execute.set_defaults(handler=self.cmd_execute)
 
         route = subparsers.add_parser("route", help="Route a prompt through the local coach router")
         route.add_argument("prompt", nargs="?", default="", help="Prompt to route")
