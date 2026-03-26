@@ -92,6 +92,7 @@ def test_shell_execute_uses_selected_adapter(tmp_path: Path, capsys) -> None:
             capsule_root=runtime_root / "capsule",
             heart_root=runtime_root / "heart",
             coherence_root=runtime_root / "coherence",
+            control_root=runtime_root / "control",
         )
     )
 

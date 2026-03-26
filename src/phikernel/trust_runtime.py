@@ -21,6 +21,7 @@ from phikernel.anc_bridge import (
     TrustObservatorySnapshot,
     build_trust_snapshot,
 )
+from phikernel.control_state import RuntimeControlState
 from phikernel.tiekat_v69_runtime import RuntimeFaceState, build_runtime_face_state
 
 
@@ -126,11 +127,13 @@ def build_operator_trust_state(
     *,
     enforcement: RuntimeEnforcementResult,
     runtime_state: dict[str, Any] | None = None,
+    control_state: RuntimeControlState | None = None,
 ) -> dict[str, Any]:
     field_state = build_runtime_face_state(runtime_state or {})
     outcome = map_enforcement_to_guard_outcome(enforcement, face_state=field_state)
+    state = control_state or RuntimeControlState()
     return {
-        "trust_posture": outcome.observability_snapshot.get("trust_posture"),
+        "trust_posture": state.trust_posture or outcome.observability_snapshot.get("trust_posture"),
         "weakest_face": field_state.weakest_face,
         "field_average": field_state.field_average,
         "field_variance": field_state.field_variance,
@@ -139,8 +142,23 @@ def build_operator_trust_state(
         "contamination_load": field_state.contamination_load,
         "incidents": list(outcome.observability_snapshot.get("incidents") or []),
         "enforcement_action": enforcement.action,
-        "requires_review": outcome.requires_review,
-        "metadata": outcome.metadata,
+        "requires_review": outcome.requires_review or state.review_required,
+        "review_required": state.review_required,
+        "quarantined": state.quarantined,
+        "sealed": state.sealed,
+        "last_operator_action": state.last_operator_action,
+        "last_operator_note": state.last_operator_note,
+        "last_action_timestamp": state.last_action_timestamp,
+        "action_history_count": state.action_history_count,
+        "next_step": state.next_step or outcome.next_step,
+        "recovery_required": state.recovery_required,
+        "recovery_state": state.recovery_state,
+        "recovery_message": state.recovery_message,
+        "last_recovery_action": state.last_recovery_action,
+        "last_recovery_note": state.last_recovery_note,
+        "last_recovery_timestamp": state.last_recovery_timestamp,
+        "recovery_history_count": state.recovery_history_count,
+        "metadata": {**outcome.metadata, "runtime_control_metadata": dict(state.metadata)},
     }
 
 

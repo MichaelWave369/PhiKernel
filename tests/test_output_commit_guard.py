@@ -13,6 +13,7 @@ def test_output_commit_blocked_for_hostile_leak(tmp_path: Path, monkeypatch) -> 
             capsule_root=runtime_root / "capsule",
             heart_root=runtime_root / "heart",
             coherence_root=runtime_root / "coherence",
+            control_root=runtime_root / "control",
         )
     )
 

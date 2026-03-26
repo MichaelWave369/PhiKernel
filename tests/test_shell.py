@@ -18,6 +18,7 @@ def runtime_paths(tmp_path: Path) -> RuntimePaths:
         capsule_root=runtime_root / "capsule",
         heart_root=runtime_root / "heart",
         coherence_root=runtime_root / "coherence",
+        control_root=runtime_root / "control",
     )
 
 
@@ -99,6 +100,7 @@ def test_resolve_runtime_paths_supports_runtime_root_and_overrides(tmp_path: Pat
     assert paths.capsule_root == base / "capsule"
     assert paths.heart_root == base / "heart"
     assert paths.coherence_root == base / "coherence"
+    assert paths.control_root == base / "control"
 
 
 

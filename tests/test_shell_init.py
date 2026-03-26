@@ -15,6 +15,7 @@ def runtime_paths(tmp_path: Path) -> RuntimePaths:
         capsule_root=runtime_root / "capsule",
         heart_root=runtime_root / "heart",
         coherence_root=runtime_root / "coherence",
+        control_root=runtime_root / "control",
     )
 
 
@@ -130,6 +131,7 @@ def test_init_runtime_root_override_works(tmp_path: Path, passphrase: str, capsy
         capsule_root=runtime_root / "capsule",
         heart_root=runtime_root / "heart",
         coherence_root=runtime_root / "coherence",
+        control_root=runtime_root / "control",
     )
     shell = PhiKernelShell(paths)
 

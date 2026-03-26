@@ -17,6 +17,7 @@ def runtime_paths(tmp_path: Path) -> RuntimePaths:
         capsule_root=runtime_root / "capsule",
         heart_root=runtime_root / "heart",
         coherence_root=runtime_root / "coherence",
+        control_root=runtime_root / "control",
     )
 
 

@@ -34,6 +34,7 @@ import sys
 import time
 
 from phikernel.anc_bridge import guard_output_commit, guard_service_request
+from phikernel.control_state import RuntimeControlState, apply_operator_action, load_runtime_control_state
 from phikernel.router import CoachReply, CoachRouter, render_reply, select_runtime_adapter
 from phikernel.trust_runtime import (
     build_operator_trust_state,
@@ -56,6 +57,7 @@ class RuntimePaths:
     capsule_root: Path
     heart_root: Path
     coherence_root: Path
+    control_root: Path
 
 
 class PhiKernelShell:
@@ -81,7 +83,11 @@ class PhiKernelShell:
         from phikernel.capsule import CapsuleNotFoundError, ContinuityCapsuleStore
 
         self.anchor_service = StateAnchorService(self.paths.anchor_root)
-        self.capsule_store = ContinuityCapsuleStore(self.paths.capsule_root, self.anchor_service)
+        self.capsule_store = ContinuityCapsuleStore(
+            self.paths.capsule_root,
+            self.anchor_service,
+            control_root=self.paths.runtime_root,
+        )
         from phikernel.heart import RuntimeBridge
 
         self.runtime_bridge = RuntimeBridge()
@@ -95,6 +101,7 @@ class PhiKernelShell:
         self.paths.capsule_root.mkdir(parents=True, exist_ok=True)
         self.paths.heart_root.mkdir(parents=True, exist_ok=True)
         self.paths.coherence_root.mkdir(parents=True, exist_ok=True)
+        self.paths.control_root.mkdir(parents=True, exist_ok=True)
         self._ensure_runtime_services()
 
         try:
@@ -127,6 +134,7 @@ class PhiKernelShell:
         self.paths.capsule_root.mkdir(parents=True, exist_ok=True)
         self.paths.heart_root.mkdir(parents=True, exist_ok=True)
         self.paths.coherence_root.mkdir(parents=True, exist_ok=True)
+        self.paths.control_root.mkdir(parents=True, exist_ok=True)
         self._ensure_runtime_services()
 
         _ = self._safe_anchor_status(required=True)
@@ -250,6 +258,7 @@ class PhiKernelShell:
             "anchor": anchor,
             "heart": heart,
             "field": field,
+            "runtime_control": load_runtime_control_state(self.paths.runtime_root).to_record(),
             "capsules": {
                 "count": len(capsules),
                 "latest": capsules[-1] if capsules else None,
@@ -338,6 +347,7 @@ class PhiKernelShell:
         self._ensure_runtime_services()
         adapter = select_runtime_adapter(getattr(args, "adapter", None))
         trust_enabled = os.getenv("PHIKERNEL_TRUST_ENABLED", "0") == "1"
+        control_state = load_runtime_control_state(self.paths.runtime_root)
         mode = "sessions"
         payload: dict[str, Any]
         if args.json_file and args.json_text:
@@ -356,6 +366,10 @@ class PhiKernelShell:
 
         if not isinstance(payload, dict):
             raise ShellError("execute payload must decode to a JSON object")
+
+        blocked_by_control = self._control_gate_for_service(control_state)
+        if blocked_by_control:
+            return blocked_by_control
 
         if not payload:
             bundle = self._build_think_bundle(args.prompt or "")
@@ -382,6 +396,7 @@ class PhiKernelShell:
                     "operator_trust_state": build_operator_trust_state(
                         enforcement=pre_enforcement,
                         runtime_state=payload,
+                        control_state=control_state,
                     ),
                     "execution_blocked": True,
                     "blocked_stage": "service_pre",
@@ -391,6 +406,8 @@ class PhiKernelShell:
         result_record = result.to_record()
 
         if not trust_enabled:
+            if control_state.review_required or control_state.recovery_state not in {None, "none"}:
+                result_record["runtime_control_state"] = control_state.to_record()
             return result_record
 
         post_payload = {**payload, **result_record}
@@ -399,6 +416,7 @@ class PhiKernelShell:
         operator_trust_state = build_operator_trust_state(
             enforcement=post_enforcement,
             runtime_state=post_payload,
+            control_state=control_state,
         )
         if post_outcome.deny_output_commit or not post_outcome.allowed:
             return {
@@ -411,7 +429,17 @@ class PhiKernelShell:
 
         result_record["trust_gate"] = post_outcome.to_record()
         result_record["operator_trust_state"] = operator_trust_state
+        if control_state.review_required or control_state.recovery_state not in {None, "none"}:
+            result_record["runtime_control_state"] = control_state.to_record()
         return result_record
+
+    def cmd_control(self, args: argparse.Namespace) -> dict[str, Any]:
+        self.paths.control_root.mkdir(parents=True, exist_ok=True)
+        return apply_operator_action(
+            self.paths.runtime_root,
+            action=args.action,
+            operator_note=args.note,
+        )
 
 
     def _build_think_bundle(self, prompt: str) -> dict[str, Any]:
@@ -428,6 +456,7 @@ class PhiKernelShell:
             "anchor": anchor,
             "heart": heart,
             "field": field,
+            "runtime_control_state": load_runtime_control_state(self.paths.runtime_root).to_record(),
             "latest_capsule": latest_capsule,
             "generated_at": time.time(),
             "next_hint": self._next_hint(
@@ -449,6 +478,7 @@ class PhiKernelShell:
         parser.add_argument("--capsule-root", default=None, help="Override capsule root")
         parser.add_argument("--heart-root", default=None, help="Override heart root")
         parser.add_argument("--coherence-root", default=None, help="Override coherence root")
+        parser.add_argument("--control-root", default=None, help="Override runtime control root")
         parser.add_argument(
             "--json",
             dest="json_output",
@@ -532,6 +562,24 @@ class PhiKernelShell:
         ask.add_argument("prompt", nargs="?", default="", help="Prompt to route")
         ask.set_defaults(handler=self.cmd_ask)
 
+        control = subparsers.add_parser("control", help="Apply operator runtime-control actions")
+        control.add_argument(
+            "action",
+            choices=[
+                "approve",
+                "review",
+                "quarantine",
+                "seal",
+                "clear_review",
+                "release_quarantine",
+                "recover_from_seal",
+                "begin_recovery",
+                "refresh",
+            ],
+        )
+        control.add_argument("--note", default=None, help="Optional operator note for control action")
+        control.set_defaults(handler=self.cmd_control)
+
         return parser
 
     def _render_result(self, command: str, result: dict[str, Any], args: argparse.Namespace) -> str:
@@ -571,6 +619,11 @@ class PhiKernelShell:
             f"Anchor: {'loaded' if anchor else 'missing'} | verified={anchor_valid}",
             f"Heart: {'present' if heart else 'missing'} | running={heart_running}",
             f"Field: {'present' if field else 'missing'} | action={action}",
+            (
+                f"Control: review_required={result['runtime_control'].get('review_required')} "
+                f"quarantined={result['runtime_control'].get('quarantined')} "
+                f"sealed={result['runtime_control'].get('sealed')}"
+            ),
             f"Capsules: {capsules.get('count', 0)}",
         ]
         latest = capsules.get("latest")
@@ -740,11 +793,43 @@ class PhiKernelShell:
             return "Restore the latest known-good capsule to reduce drift."
         if field and field.get("recommended_action") == "checkpoint":
             return "Seal a checkpoint capsule before proceeding."
+        control = load_runtime_control_state(self.paths.runtime_root)
+        if control.sealed:
+            return "Runtime is sealed. Follow recovery workflow before execution or writes."
+        if control.quarantined:
+            return "Runtime is quarantined. Request operator recovery before continuing."
+        if control.recovery_state == "recovery_in_progress":
+            return "Recovery is in progress. Complete explicit recovery actions before normal operation."
+        if control.review_required:
+            return "Runtime requires operator review. Proceed with caution."
         if not latest_capsule:
             return "Seal the first working capsule to establish continuity."
         if not heart:
             return "Start phik-heart to bring pulse monitoring online."
         return "Field is stable. Continue with orchestration or shell workflows."
+
+    def _control_gate_for_service(self, control_state: RuntimeControlState) -> dict[str, Any] | None:
+        if control_state.sealed:
+            return {
+                "execution_blocked": True,
+                "blocked_stage": "service_pre",
+                "operator_message": "Runtime sealed by operator control state.",
+                "runtime_control_state": control_state.to_record(),
+                "recovery_state": control_state.recovery_state,
+                "recovery_message": control_state.recovery_message,
+                "next_step": control_state.next_step or "recover_from_seal",
+            }
+        if control_state.quarantined:
+            return {
+                "execution_blocked": True,
+                "blocked_stage": "service_pre",
+                "operator_message": "Runtime quarantined by operator control state.",
+                "runtime_control_state": control_state.to_record(),
+                "recovery_state": control_state.recovery_state,
+                "recovery_message": control_state.recovery_message,
+                "next_step": control_state.next_step or "operator_quarantine_review",
+            }
+        return None
 
 
 def resolve_runtime_paths(argv: list[str] | None = None) -> RuntimePaths:
@@ -755,6 +840,7 @@ def resolve_runtime_paths(argv: list[str] | None = None) -> RuntimePaths:
     pre.add_argument("--capsule-root", default=None)
     pre.add_argument("--heart-root", default=None)
     pre.add_argument("--coherence-root", default=None)
+    pre.add_argument("--control-root", default=None)
     args, _ = pre.parse_known_args(argv)
 
     runtime_root = Path(args.runtime_root)
@@ -764,6 +850,7 @@ def resolve_runtime_paths(argv: list[str] | None = None) -> RuntimePaths:
         capsule_root=Path(args.capsule_root) if args.capsule_root else runtime_root / "capsule",
         heart_root=Path(args.heart_root) if args.heart_root else runtime_root / "heart",
         coherence_root=Path(args.coherence_root) if args.coherence_root else runtime_root / "coherence",
+        control_root=Path(args.control_root) if args.control_root else runtime_root / "control",
     )
 
 
