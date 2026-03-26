@@ -29,10 +29,16 @@ from pathlib import Path
 from typing import Any
 import argparse
 import json
+import os
 import sys
 import time
 
+from phikernel.anc_bridge import guard_output_commit, guard_service_request
 from phikernel.router import CoachReply, CoachRouter, render_reply, select_runtime_adapter
+from phikernel.trust_runtime import (
+    build_operator_trust_state,
+    map_enforcement_to_guard_outcome,
+)
 
 
 DEFAULT_SHELL_VERSION = "0.1.2"
@@ -331,6 +337,7 @@ class PhiKernelShell:
     def cmd_execute(self, args: argparse.Namespace) -> dict[str, Any]:
         self._ensure_runtime_services()
         adapter = select_runtime_adapter(getattr(args, "adapter", None))
+        trust_enabled = os.getenv("PHIKERNEL_TRUST_ENABLED", "0") == "1"
         mode = "sessions"
         payload: dict[str, Any]
         if args.json_file and args.json_text:
@@ -366,8 +373,45 @@ class PhiKernelShell:
             }
             mode = "shell_bridge"
 
+        if trust_enabled:
+            pre_enforcement = guard_service_request(payload)
+            pre_outcome = map_enforcement_to_guard_outcome(pre_enforcement)
+            if not pre_outcome.allowed:
+                return {
+                    "trust_gate": pre_outcome.to_record(),
+                    "operator_trust_state": build_operator_trust_state(
+                        enforcement=pre_enforcement,
+                        runtime_state=payload,
+                    ),
+                    "execution_blocked": True,
+                    "blocked_stage": "service_pre",
+                }
+
         result = self.runtime_bridge.execute(payload, adapter=adapter, mode=mode)
-        return result.to_record()
+        result_record = result.to_record()
+
+        if not trust_enabled:
+            return result_record
+
+        post_payload = {**payload, **result_record}
+        post_enforcement = guard_output_commit(post_payload)
+        post_outcome = map_enforcement_to_guard_outcome(post_enforcement)
+        operator_trust_state = build_operator_trust_state(
+            enforcement=post_enforcement,
+            runtime_state=post_payload,
+        )
+        if post_outcome.deny_output_commit or not post_outcome.allowed:
+            return {
+                "trust_gate": post_outcome.to_record(),
+                "operator_trust_state": operator_trust_state,
+                "output_committed": False,
+                "execution_result": result_record,
+                "blocked_stage": "output_commit",
+            }
+
+        result_record["trust_gate"] = post_outcome.to_record()
+        result_record["operator_trust_state"] = operator_trust_state
+        return result_record
 
 
     def _build_think_bundle(self, prompt: str) -> dict[str, Any]:
