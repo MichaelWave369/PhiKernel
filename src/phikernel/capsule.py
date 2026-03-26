@@ -46,6 +46,8 @@ from phikernel.anchor import (
     AnchorVerificationError,
     StateAnchorService,
 )
+from phikernel.anc_bridge import guard_memory_write
+from phikernel.trust_runtime import map_enforcement_to_guard_outcome
 
 
 DEFAULT_CAPSULE_VERSION = "0.1.1"
@@ -235,6 +237,22 @@ class ContinuityCapsuleStore:
         parent_capsule_id: str | None = None,
     ) -> ContinuityCapsule:
         """Create, sign, encrypt, and persist a continuity capsule."""
+        if os.getenv("PHIKERNEL_TRUST_ENABLED", "0") == "1":
+            enforcement = guard_memory_write(
+                {
+                    "capsule_type": capsule_type,
+                    "summary": summary,
+                    "tags": list(tags or ()),
+                    "state_keys": sorted(state.keys()) if isinstance(state, dict) else [],
+                    "contamination_load": state.get("contamination_load", 0.0) if isinstance(state, dict) else 0.0,
+                }
+            )
+            guard_outcome = map_enforcement_to_guard_outcome(enforcement)
+            if guard_outcome.deny_memory_write or not guard_outcome.allowed:
+                raise CapsuleVerificationError(
+                    f"Memory write blocked by trust guard: {guard_outcome.operator_message}"
+                )
+
         manifest = self.anchor_service.load_manifest()
         anchor_verification = self.anchor_service.verify_anchor()
         if not anchor_verification.valid:
