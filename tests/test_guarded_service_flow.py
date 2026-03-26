@@ -12,6 +12,7 @@ def _shell(tmp_path: Path) -> tuple[PhiKernelShell, Path]:
             capsule_root=runtime_root / "capsule",
             heart_root=runtime_root / "heart",
             coherence_root=runtime_root / "coherence",
+            control_root=runtime_root / "control",
         )
     )
     shell.run(

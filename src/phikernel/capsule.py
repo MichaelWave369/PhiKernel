@@ -47,6 +47,7 @@ from phikernel.anchor import (
     StateAnchorService,
 )
 from phikernel.anc_bridge import guard_memory_write
+from phikernel.control_state import load_runtime_control_state
 from phikernel.trust_runtime import map_enforcement_to_guard_outcome
 
 
@@ -215,6 +216,7 @@ class ContinuityCapsuleStore:
         memory_cost_kib: int = DEFAULT_CAPSULE_MEMORY_COST_KIB,
         time_cost: int = DEFAULT_CAPSULE_TIME_COST,
         parallelism: int = DEFAULT_CAPSULE_PARALLELISM,
+        control_root: str | Path | None = None,
     ) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
@@ -222,6 +224,7 @@ class ContinuityCapsuleStore:
         self.memory_cost_kib = memory_cost_kib
         self.time_cost = time_cost
         self.parallelism = parallelism
+        self.control_root = Path(control_root) if control_root is not None else None
         self.capsule_dir = self.root / "capsules"
         self.capsule_dir.mkdir(parents=True, exist_ok=True)
 
@@ -237,6 +240,17 @@ class ContinuityCapsuleStore:
         parent_capsule_id: str | None = None,
     ) -> ContinuityCapsule:
         """Create, sign, encrypt, and persist a continuity capsule."""
+        if self.control_root is not None:
+            control_state = load_runtime_control_state(self.control_root)
+            if control_state.sealed:
+                raise CapsuleVerificationError(
+                    "Memory write blocked: runtime is sealed and requires recovery before writes."
+                )
+            if control_state.quarantined:
+                raise CapsuleVerificationError(
+                    "Memory write blocked: runtime is quarantined pending operator review."
+                )
+
         if os.getenv("PHIKERNEL_TRUST_ENABLED", "0") == "1":
             enforcement = guard_memory_write(
                 {
