@@ -406,7 +406,7 @@ class PhiKernelShell:
         result_record = result.to_record()
 
         if not trust_enabled:
-            if control_state.review_required:
+            if control_state.review_required or control_state.recovery_state not in {None, "none"}:
                 result_record["runtime_control_state"] = control_state.to_record()
             return result_record
 
@@ -429,7 +429,7 @@ class PhiKernelShell:
 
         result_record["trust_gate"] = post_outcome.to_record()
         result_record["operator_trust_state"] = operator_trust_state
-        if control_state.review_required:
+        if control_state.review_required or control_state.recovery_state not in {None, "none"}:
             result_record["runtime_control_state"] = control_state.to_record()
         return result_record
 
@@ -563,7 +563,20 @@ class PhiKernelShell:
         ask.set_defaults(handler=self.cmd_ask)
 
         control = subparsers.add_parser("control", help="Apply operator runtime-control actions")
-        control.add_argument("action", choices=["approve", "review", "quarantine", "seal", "refresh"])
+        control.add_argument(
+            "action",
+            choices=[
+                "approve",
+                "review",
+                "quarantine",
+                "seal",
+                "clear_review",
+                "release_quarantine",
+                "recover_from_seal",
+                "begin_recovery",
+                "refresh",
+            ],
+        )
         control.add_argument("--note", default=None, help="Optional operator note for control action")
         control.set_defaults(handler=self.cmd_control)
 
@@ -785,6 +798,8 @@ class PhiKernelShell:
             return "Runtime is sealed. Follow recovery workflow before execution or writes."
         if control.quarantined:
             return "Runtime is quarantined. Request operator recovery before continuing."
+        if control.recovery_state == "recovery_in_progress":
+            return "Recovery is in progress. Complete explicit recovery actions before normal operation."
         if control.review_required:
             return "Runtime requires operator review. Proceed with caution."
         if not latest_capsule:
@@ -800,6 +815,8 @@ class PhiKernelShell:
                 "blocked_stage": "service_pre",
                 "operator_message": "Runtime sealed by operator control state.",
                 "runtime_control_state": control_state.to_record(),
+                "recovery_state": control_state.recovery_state,
+                "recovery_message": control_state.recovery_message,
                 "next_step": control_state.next_step or "recover_from_seal",
             }
         if control_state.quarantined:
@@ -808,6 +825,8 @@ class PhiKernelShell:
                 "blocked_stage": "service_pre",
                 "operator_message": "Runtime quarantined by operator control state.",
                 "runtime_control_state": control_state.to_record(),
+                "recovery_state": control_state.recovery_state,
+                "recovery_message": control_state.recovery_message,
                 "next_step": control_state.next_step or "operator_quarantine_review",
             }
         return None

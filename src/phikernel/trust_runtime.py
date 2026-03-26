@@ -151,6 +151,13 @@ def build_operator_trust_state(
         "last_action_timestamp": state.last_action_timestamp,
         "action_history_count": state.action_history_count,
         "next_step": state.next_step or outcome.next_step,
+        "recovery_required": state.recovery_required,
+        "recovery_state": state.recovery_state,
+        "recovery_message": state.recovery_message,
+        "last_recovery_action": state.last_recovery_action,
+        "last_recovery_note": state.last_recovery_note,
+        "last_recovery_timestamp": state.last_recovery_timestamp,
+        "recovery_history_count": state.recovery_history_count,
         "metadata": {**outcome.metadata, "runtime_control_metadata": dict(state.metadata)},
     }
 

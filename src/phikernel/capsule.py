@@ -250,6 +250,10 @@ class ContinuityCapsuleStore:
                 raise CapsuleVerificationError(
                     "Memory write blocked: runtime is quarantined pending operator review."
                 )
+            if control_state.recovery_state == "recovery_in_progress":
+                raise CapsuleVerificationError(
+                    "Memory write blocked: runtime recovery is in progress; complete recovery flow first."
+                )
 
         if os.getenv("PHIKERNEL_TRUST_ENABLED", "0") == "1":
             enforcement = guard_memory_write(

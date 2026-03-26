@@ -7,6 +7,7 @@ from phikernel.capsule import CapsuleVerificationError
 from phikernel.control_state import (
     load_runtime_control_state,
     list_recent_runtime_control_actions,
+    list_recent_runtime_recovery_actions,
 )
 from phikernel.shell import PhiKernelShell, RuntimePaths
 from phikernel.trust_runtime import build_operator_trust_state
@@ -104,6 +105,7 @@ def test_approve_clears_review_but_not_quarantine_or_seal(tmp_path: Path) -> Non
     blocked_approve = shell.cmd_control(type("Args", (), {"action": "approve", "note": "should not clear"})())
     assert blocked_approve["accepted"] is False
     assert blocked_approve["runtime_control_state"]["quarantined"] is True
+    assert blocked_approve["runtime_control_state"]["recovery_required"] is True
 
 
 def test_refresh_and_action_history_persistence(tmp_path: Path) -> None:
@@ -140,3 +142,82 @@ def test_operator_trust_export_includes_runtime_control_fields(tmp_path: Path) -
     assert export["sealed"] is False
     assert export["last_operator_note"] == "requires oversight"
     assert export["action_history_count"] >= 1
+    assert "recovery_state" in export
+
+
+def test_clear_review_explicit_recovery_action_persists_history(tmp_path: Path) -> None:
+    shell = _shell(tmp_path)
+    shell.cmd_control(type("Args", (), {"action": "review", "note": "requires review"})())
+
+    cleared = shell.cmd_control(type("Args", (), {"action": "clear_review", "note": "review complete"})())
+
+    assert cleared["accepted"] is True
+    assert cleared["runtime_control_state"]["review_required"] is False
+    assert cleared["runtime_control_state"]["recovery_state"] == "recovered"
+    recovery_records = list_recent_runtime_recovery_actions(shell.paths.runtime_root, limit=5)
+    assert recovery_records[-1].action == "clear_review"
+
+
+def test_release_quarantine_requires_valid_state_and_is_auditable(tmp_path: Path) -> None:
+    shell = _shell(tmp_path)
+
+    invalid_release = shell.cmd_control(type("Args", (), {"action": "release_quarantine", "note": "noop"})())
+    assert invalid_release["accepted"] is False
+    assert invalid_release["recovery_state"] == "recovery_blocked"
+
+    shell.cmd_control(type("Args", (), {"action": "quarantine", "note": "contain"})())
+    released = shell.cmd_control(type("Args", (), {"action": "release_quarantine", "note": "release after check"})())
+    assert released["accepted"] is True
+    assert released["runtime_control_state"]["quarantined"] is False
+    assert released["runtime_control_state"]["review_required"] is True
+
+
+def test_recover_from_seal_requires_note_and_keeps_conservative_boundary(tmp_path: Path) -> None:
+    shell = _shell(tmp_path)
+    shell.cmd_control(type("Args", (), {"action": "seal", "note": "hard boundary"})())
+
+    rejected = shell.cmd_control(type("Args", (), {"action": "recover_from_seal", "note": None})())
+    assert rejected["accepted"] is False
+    assert rejected["recovery_state"] == "recovery_blocked"
+
+    recovered = shell.cmd_control(
+        type("Args", (), {"action": "recover_from_seal", "note": "manual recovery checkpoint"})()
+    )
+    assert recovered["accepted"] is True
+    assert recovered["runtime_control_state"]["sealed"] is False
+    assert recovered["runtime_control_state"]["quarantined"] is True
+    assert recovered["runtime_control_state"]["recovery_state"] == "recovery_in_progress"
+    recovery_records = list_recent_runtime_recovery_actions(shell.paths.runtime_root, limit=10)
+    assert any(r.action == "recover_from_seal" for r in recovery_records)
+
+
+def test_guarded_runtime_honors_recovery_flow_release_sequence(tmp_path: Path) -> None:
+    shell = _shell(tmp_path)
+    shell.cmd_control(type("Args", (), {"action": "seal", "note": "boundary"})())
+
+    blocked = shell.cmd_execute(
+        type("Args", (), {"adapter": "legacy", "json_file": None, "json_text": '{"prompt":"normal"}', "prompt": ""})
+    )
+    assert blocked["execution_blocked"] is True
+
+    shell.cmd_control(type("Args", (), {"action": "recover_from_seal", "note": "step down"})())
+    still_blocked = shell.cmd_execute(
+        type("Args", (), {"adapter": "legacy", "json_file": None, "json_text": '{"prompt":"normal"}', "prompt": ""})
+    )
+    assert still_blocked["execution_blocked"] is True
+    assert still_blocked["runtime_control_state"]["quarantined"] is True
+
+    shell.cmd_control(type("Args", (), {"action": "release_quarantine", "note": "release"})())
+    review_only = shell.cmd_execute(
+        type("Args", (), {"adapter": "legacy", "json_file": None, "json_text": '{"prompt":"normal"}', "prompt": ""})
+    )
+    assert review_only.get("execution_blocked") is not True
+    assert review_only["runtime_control_state"]["review_required"] is True
+
+
+def test_refresh_reports_recovery_state_without_clearing_boundaries(tmp_path: Path) -> None:
+    shell = _shell(tmp_path)
+    shell.cmd_control(type("Args", (), {"action": "quarantine", "note": "hold"})())
+    refreshed = shell.cmd_control(type("Args", (), {"action": "refresh", "note": "status"})())
+    assert refreshed["runtime_control_state"]["quarantined"] is True
+    assert refreshed["recovery_state"] == "quarantine_pending"
