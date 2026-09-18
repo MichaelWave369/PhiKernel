@@ -109,7 +109,7 @@ It provides:
 ## Project status
 
 **Version:** `0.1.0`  
-**Status:** private alpha / substrate milestone
+**Status:** open alpha / Phi Commons substrate milestone
 
 PhiKernel v0.1.0 is the first full core braid milestone:
 - identity
@@ -119,7 +119,7 @@ PhiKernel v0.1.0 is the first full core braid milestone:
 - voice
 - first safe orchestration
 
-This version is intended as a **local, private, testable foundation** for future coach, wellness, and sovereign-runtime work.
+This version is intended as a **local-first, inspectable, testable foundation** for future PhiOS runtime and sovereign-computing work.
 
 ---
 
@@ -129,7 +129,7 @@ This version is intended as a **local, private, testable foundation** for future
 phikernel/
 ├── pyproject.toml
 ├── README.md
-├── PROPRIETARY_NOTICE.md
+├── LICENSE\n├── PHI_COMMONS.md\n├── LICENSE_HISTORY.md\n├── THIRD_PARTY_NOTICES.md
 ├── src/
 │   └── phikernel/
 │       ├── __init__.py
@@ -389,11 +389,13 @@ This version does **not** attempt to:
 
 ---
 
-## Proprietary status
+## License and Phi Commons status
 
-PhiKernel is currently a **private / proprietary** project.
+Project-owned PhiKernel code and documentation are released under the **MIT License** unless otherwise noted.
 
-No open-source license is granted in this repository unless explicitly added in the future. See `PROPRIETARY_NOTICE.md` for project ownership and usage restrictions.
+PhiKernel is part of the **Phi Commons**. Third-party dependencies remain under their own licenses; see `THIRD_PARTY_NOTICES.md`.
+
+The pre-Commons proprietary state is preserved in repository history and documented in `LICENSE_HISTORY.md`.
 
 ---
 
