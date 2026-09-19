@@ -189,19 +189,14 @@ def run_shadow_routing(
     router = legacy_router or CoachRouter()
 
     binding_map = _validate_bindings(bindings)
-    candidate_keys = {candidate.route_key for candidate in candidates}
-
     # Run the currently authoritative path first and keep its reply immutable.
     legacy_reply = router.route(think_bundle)
     legacy_route_key = binding_map.get(legacy_reply.coach)
 
-    # Configuration may contain bindings for routes not in this candidate set.
-    # That is allowed so one global mapping can serve different requests.
-    if (
-        legacy_route_key is not None
-        and legacy_route_key not in candidate_keys
-    ):
-        legacy_route_key = None
+    # Keep a valid coach->route binding even when that route is absent from the
+    # current vNext candidate set. Absence is itself useful shadow evidence and
+    # allows VNEXT_NO_ROUTE / DIVERGE to remain distinguishable from an
+    # actually unmapped legacy coach.
 
     try:
         vnext_receipt = route_relational(
