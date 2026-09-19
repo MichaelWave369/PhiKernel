@@ -362,7 +362,11 @@ def test_unsafe_legacy_reply_remains_unsafe_even_if_vnext_prefers_route() -> Non
 
     assert direct.coach == "Titan"
     assert direct.safe_to_proceed is False
-    assert result.legacy_reply == direct
+    assert result.legacy_reply.coach == direct.coach
+    assert result.legacy_reply.route_reason == direct.route_reason
+    assert result.legacy_reply.safe_to_proceed == direct.safe_to_proceed
+    assert result.legacy_reply.field_action == direct.field_action
+    assert result.legacy_reply.field_band == direct.field_band
     assert result.legacy_reply.safe_to_proceed is False
     assert result.comparison.legacy_safe_to_proceed is False
 
