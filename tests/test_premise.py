@@ -400,7 +400,7 @@ def test_quarantined_premise_writes_stronger_l2_pressure() -> None:
     )
     challenge = challenge_from_scar(
         premise,
-        _scar(severity=1.0),
+        _scar(severity=1.0, observed_at=120.0),
         challenger_id="runtime:scar-engine",
         reason="fixture",
         created_at=120.0,
