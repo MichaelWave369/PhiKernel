@@ -53,14 +53,14 @@ def _premise():
     )
 
 
-def _scar(*, severity=0.7, source="transition:v1"):
+def _scar(*, severity=0.7, source="transition:v1", observed_at=110.0):
     return FailureScar.create(
         subject_id="sensor:fusion",
         route_key="route:sensor-fusion",
         failure_kind=REFUSED,
         severity=severity,
         source_ref=source,
-        observed_at=110.0,
+        observed_at=observed_at,
         half_life_seconds=1000.0,
     )
 
