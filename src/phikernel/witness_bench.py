@@ -622,10 +622,15 @@ class PromotionState:
             raise WitnessBenchError("invalid promotion mode")
         if self.revision < 0:
             raise WitnessBenchError("promotion revision must be >= 0")
-        if self.mode == SHADOW and self.authorized_by_seal_id is not None:
-            if self.revision == 0:
+        if self.mode == SHADOW and self.revision == 0:
+            if self.authorized_by_seal_id is not None:
                 raise WitnessBenchError(
                     "genesis SHADOW state may not have an authorization seal"
+                )
+        if self.mode in {ADVISE, BOUNDED_CONTROL}:
+            if not (self.authorized_by_seal_id or "").strip():
+                raise WitnessBenchError(
+                    "promoted routing mode requires human authorization seal"
                 )
 
     @classmethod
