@@ -22,7 +22,7 @@ import time
 import uuid
 
 from phikernel.transition import TransitionEvaluation
-from phikernel.warrant import ResourceBudget, Warrant, WarrantError
+from phikernel.warrant import ResourceBudget, Warrant, WarrantSpendReceipt
 
 
 COALITION_VERSION = "0.2.0"
@@ -227,6 +227,29 @@ class CoalitionOutcomeReceipt:
 
 
 @dataclass(frozen=True)
+class CoalitionWarrantGrant:
+    coalition_warrant: Warrant
+    sponsor_warrant_after: Warrant
+    reservation_receipts: tuple[WarrantSpendReceipt, ...]
+    reserved_budgets: tuple[ResourceBudget, ...]
+    authority_change: str = "NONE"
+    constitutional_change: str = "NONE"
+
+    def __post_init__(self) -> None:
+        if self.coalition_warrant.parent_warrant_id is None:
+            raise CoalitionError("coalition warrant must name a parent sponsor warrant")
+        if self.authority_change != "NONE":
+            raise CoalitionError("warrant reservation may not grant extra authority")
+        if self.constitutional_change != "NONE":
+            raise CoalitionError("warrant reservation may not change constitution")
+        if len(self.reservation_receipts) != len(self.reserved_budgets):
+            raise CoalitionError("each reserved budget requires one reservation receipt")
+        for receipt in self.reservation_receipts:
+            if receipt.authority_change != "NONE":
+                raise CoalitionError("reservation receipt may not change authority")
+
+
+@dataclass(frozen=True)
 class CoalitionDisbandReceipt:
     receipt_id: str
     coalition_id: str
@@ -293,11 +316,12 @@ def issue_coalition_warrant(
     scopes: tuple[str, ...] | list[str],
     budgets: tuple[ResourceBudget, ...] | list[ResourceBudget] = (),
     issued_at: float | None = None,
-) -> Warrant:
-    """Create a strict child warrant for the coalition identity.
+) -> CoalitionWarrantGrant:
+    """Create and reserve a strict child warrant for the coalition identity.
 
-    v0.2 requires exact sponsor-scope subset membership. This avoids pretending
-    that arbitrary wildcard containment is safe when it is not.
+    v0.2 requires exact sponsor-scope subset membership. Child resource budgets
+    are atomically reserved from the sponsor at grant time so multiple coalitions
+    cannot each spend the same apparent remaining capacity.
     """
     timestamp = time.time() if issued_at is None else float(issued_at)
 
@@ -321,6 +345,7 @@ def issue_coalition_warrant(
     if len(requested_kinds) != len(set(requested_kinds)):
         raise CoalitionError("coalition budget kinds must be unique")
 
+    # Full preflight before creating either immutable successor object.
     for budget in requested_budgets:
         sponsor_budget = sponsor_warrant.budget(budget.kind)
         if sponsor_budget is None:
@@ -343,7 +368,18 @@ def issue_coalition_warrant(
     if lifetime <= 0:
         raise CoalitionError("coalition warrant would have no positive lifetime")
 
-    return Warrant.issue(
+    sponsor_after = sponsor_warrant
+    reservations: list[WarrantSpendReceipt] = []
+    for budget in requested_budgets:
+        sponsor_after, receipt = sponsor_after.spend(
+            actor_id=sponsor_warrant.bearer,
+            resource_kind=budget.kind,
+            amount=budget.limit,
+            now=timestamp,
+        )
+        reservations.append(receipt)
+
+    child = Warrant.issue(
         issuer=sponsor_warrant.issuer,
         bearer=charter.coalition_id,
         scopes=requested_scopes,
@@ -356,7 +392,15 @@ def issue_coalition_warrant(
             "coalition_purpose": charter.purpose,
             "sponsor_warrant_id": sponsor_warrant.warrant_id,
             "member_ids": list(charter.active_member_ids),
+            "budget_reservation": "CONSUMED_AT_GRANT",
         },
+    )
+
+    return CoalitionWarrantGrant(
+        coalition_warrant=child,
+        sponsor_warrant_after=sponsor_after,
+        reservation_receipts=tuple(reservations),
+        reserved_budgets=requested_budgets,
     )
 
 
