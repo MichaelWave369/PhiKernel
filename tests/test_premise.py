@@ -183,7 +183,7 @@ def test_multiple_verified_challenges_can_quarantine_premise() -> None:
         [one, two],
     )
 
-    assert evaluation.challenge_score == pytest.approx(1.4)
+    assert evaluation.challenge_score > 1.25
     assert updated.state == QUARANTINED
     assert updated.blocks_dependents is True
     assert receipt.resulting_state == QUARANTINED
@@ -241,12 +241,14 @@ def test_runtime_evaluation_cannot_auto_restore_quarantined_premise() -> None:
         _scar(severity=0.7, source="transition:v1"),
         challenger_id="runtime:scar-engine",
         reason="first",
+        created_at=120.0,
     )
     two = challenge_from_scar(
         premise,
         _scar(severity=0.7, source="transition:v2"),
         challenger_id="runtime:scar-engine",
         reason="second",
+        created_at=121.0,
     )
     quarantined = apply_premise_evaluation(
         premise,
@@ -277,6 +279,7 @@ def test_challenged_route_is_restricted_but_not_blocked() -> None:
         _scar(severity=0.7),
         challenger_id="runtime:scar-engine",
         reason="fixture",
+        created_at=120.0,
     )
     challenged = apply_premise_evaluation(
         premise,
@@ -302,12 +305,14 @@ def test_quarantined_premise_blocks_dependent_route_and_carriage() -> None:
         _scar(severity=0.8, source="transition:v1"),
         challenger_id="runtime:scar-engine",
         reason="first",
+        created_at=120.0,
     )
     two = challenge_from_scar(
         premise,
         _scar(severity=0.8, source="transition:v2"),
         challenger_id="runtime:scar-engine",
         reason="second",
+        created_at=121.0,
     )
     quarantined = apply_premise_evaluation(
         premise,
@@ -355,6 +360,7 @@ def test_challenged_premise_can_write_only_l2_routing_weather() -> None:
         _scar(severity=0.7),
         challenger_id="runtime:scar-engine",
         reason="fixture",
+        created_at=120.0,
     )
     challenged = apply_premise_evaluation(
         premise,
@@ -397,6 +403,7 @@ def test_quarantined_premise_writes_stronger_l2_pressure() -> None:
         _scar(severity=1.0),
         challenger_id="runtime:scar-engine",
         reason="fixture",
+        created_at=120.0,
     )
     quarantined = apply_premise_evaluation(
         premise,
@@ -453,6 +460,7 @@ def test_challenged_premise_may_propose_l1_but_does_not_apply_it() -> None:
         _scar(severity=0.7),
         challenger_id="runtime:scar-engine",
         reason="fixture",
+        created_at=120.0,
     )
     challenged = apply_premise_evaluation(
         premise,
@@ -505,12 +513,14 @@ def test_quarantined_premise_may_petition_l0_but_cannot_apply_it() -> None:
         _scar(severity=0.8, source="transition:v1"),
         challenger_id="runtime:scar-engine",
         reason="first",
+        created_at=120.0,
     )
     two = challenge_from_scar(
         premise,
         _scar(severity=0.8, source="transition:v2"),
         challenger_id="runtime:scar-engine",
         reason="second",
+        created_at=121.0,
     )
     quarantined = apply_premise_evaluation(
         premise,
@@ -545,12 +555,14 @@ def test_explicit_resolution_can_restore_quarantined_premise() -> None:
         _scar(severity=0.8, source="transition:v1"),
         challenger_id="runtime:scar-engine",
         reason="first",
+        created_at=120.0,
     )
     two = challenge_from_scar(
         premise,
         _scar(severity=0.8, source="transition:v2"),
         challenger_id="runtime:scar-engine",
         reason="second",
+        created_at=121.0,
     )
     quarantined = apply_premise_evaluation(
         premise,
@@ -584,6 +596,7 @@ def test_explicit_resolution_can_retire_bad_premise() -> None:
         _scar(severity=0.7),
         challenger_id="runtime:scar-engine",
         reason="fixture",
+        created_at=120.0,
     )
     challenged = apply_premise_evaluation(
         premise,
@@ -614,6 +627,7 @@ def test_resolution_requires_external_authority_reference() -> None:
         _scar(severity=0.7),
         challenger_id="runtime:scar-engine",
         reason="fixture",
+        created_at=120.0,
     )
     challenged = apply_premise_evaluation(
         premise,
@@ -630,3 +644,63 @@ def test_resolution_requires_external_authority_reference() -> None:
             authority_ref="",
             resolution_ref="test-result:1",
         )
+
+
+def test_same_scar_receipt_cannot_be_replayed_to_inflate_score() -> None:
+    premise = _premise()
+    scar = _scar(severity=0.7)
+    first = challenge_from_scar(
+        premise,
+        scar,
+        challenger_id="runtime:scar-engine",
+        reason="first submission",
+        created_at=120.0,
+    )
+    replay = challenge_from_scar(
+        premise,
+        scar,
+        challenger_id="runtime:scar-engine",
+        reason="same receipt replayed",
+        created_at=120.0,
+    )
+
+    evaluation = evaluate_premise(
+        premise,
+        [first, replay],
+        now=121.0,
+    )
+
+    assert first.source_ref == replay.source_ref
+    assert evaluation.verified_challenge_count == 1
+    assert evaluation.challenge_score == pytest.approx(first.severity)
+    assert evaluation.recommended_state == CHALLENGED
+
+
+def test_old_scar_loses_premise_challenge_weight_before_submission() -> None:
+    premise = _premise()
+    scar = FailureScar.create(
+        subject_id="sensor:fusion",
+        route_key="route:sensor-fusion",
+        failure_kind=REFUSED,
+        severity=1.0,
+        source_ref="transition:ancient",
+        observed_at=0.0,
+        half_life_seconds=100.0,
+    )
+
+    challenge = challenge_from_scar(
+        premise,
+        scar,
+        challenger_id="runtime:scar-engine",
+        reason="old failure receipt",
+        created_at=300.0,
+    )
+    evaluation = evaluate_premise(
+        premise,
+        [challenge],
+        now=301.0,
+    )
+
+    assert challenge.severity == pytest.approx(0.125)
+    assert evaluation.challenge_score == pytest.approx(0.125)
+    assert evaluation.recommended_state == ACTIVE
