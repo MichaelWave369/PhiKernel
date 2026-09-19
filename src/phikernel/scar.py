@@ -15,6 +15,10 @@ from typing import Any
 import time
 import uuid
 
+from phikernel.carriage import ADMIT, QUARANTINE as CARRIAGE_QUARANTINE, REFUSE as CARRIAGE_REFUSE, CarriageCandidate, MembraneVerdict
+from phikernel.contradiction import ContradictionObject
+from phikernel.transition import LICENSE, QUARANTINE as TRANSITION_QUARANTINE, REFUSE as TRANSITION_REFUSE, TransitionEvaluation
+
 
 SCAR_VERSION = "0.2.0"
 
@@ -181,4 +185,109 @@ def build_scar_profile(
         failure_kinds=tuple(sorted({scar.failure_kind for scar in matching})),
         source_refs=tuple(scar.source_ref for scar in matching),
         evaluated_at=evaluated_at,
+    )
+
+
+def scar_from_transition(
+    transition: TransitionEvaluation,
+    *,
+    route_key: str,
+    severity: float,
+    observed_at: float | None = None,
+    half_life_seconds: float = 3600.0,
+) -> FailureScar:
+    """Derive a scar from a non-successful governed transition receipt."""
+    decision = transition.verdict.decision
+    if decision == LICENSE and transition.verdict.allowed:
+        raise ScarError("licensed successful transition does not create a failure scar")
+
+    if decision == TRANSITION_QUARANTINE:
+        failure_kind = QUARANTINED
+    elif decision == TRANSITION_REFUSE or not transition.verdict.allowed:
+        failure_kind = REFUSED
+    else:
+        failure_kind = REFUSED
+
+    return FailureScar.create(
+        subject_id=transition.proposal.actor_id,
+        route_key=route_key,
+        failure_kind=failure_kind,
+        severity=severity,
+        source_ref=f"transition:{transition.verdict.verdict_id}",
+        observed_at=observed_at,
+        half_life_seconds=half_life_seconds,
+        metadata={
+            "proposal_id": transition.proposal.proposal_id,
+            "warrant_id": transition.proposal.warrant_id,
+            "decision": transition.verdict.decision,
+        },
+    )
+
+
+def scar_from_membrane(
+    candidate: CarriageCandidate,
+    verdict: MembraneVerdict,
+    *,
+    subject_id: str,
+    route_key: str,
+    severity: float,
+    observed_at: float | None = None,
+    half_life_seconds: float = 3600.0,
+) -> FailureScar:
+    """Derive a scar from a failed/quarantined carriage membrane outcome."""
+    if verdict.carriage_id != candidate.carriage_id:
+        raise ScarError("membrane verdict belongs to a different carriage")
+    if verdict.decision == ADMIT:
+        raise ScarError("admitted carriage does not create a failure scar")
+
+    if verdict.missing_provenance_refs:
+        failure_kind = PROVENANCE_BREAK
+    elif verdict.decision == CARRIAGE_QUARANTINE:
+        failure_kind = QUARANTINED
+    elif verdict.decision == CARRIAGE_REFUSE:
+        failure_kind = REFUSED
+    else:
+        raise ScarError(f"unsupported membrane decision: {verdict.decision}")
+
+    return FailureScar.create(
+        subject_id=subject_id,
+        route_key=route_key,
+        failure_kind=failure_kind,
+        severity=severity,
+        source_ref=f"membrane:{verdict.membrane_verdict_id}",
+        observed_at=observed_at,
+        half_life_seconds=half_life_seconds,
+        metadata={
+            "carriage_id": candidate.carriage_id,
+            "claim_key": candidate.claim_key,
+            "membrane_decision": verdict.decision,
+        },
+    )
+
+
+def scar_from_contradiction(
+    contradiction: ContradictionObject,
+    *,
+    subject_id: str,
+    route_key: str,
+    severity: float,
+    observed_at: float | None = None,
+    half_life_seconds: float = 3600.0,
+) -> FailureScar:
+    """Derive routing memory from an open contradiction without choosing a winner."""
+    if not contradiction.is_open:
+        raise ScarError("resolved contradiction does not create a new failure scar")
+
+    return FailureScar.create(
+        subject_id=subject_id,
+        route_key=route_key,
+        failure_kind=CONTRADICTION,
+        severity=severity,
+        source_ref=f"contradiction:{contradiction.contradiction_id}",
+        observed_at=observed_at,
+        half_life_seconds=half_life_seconds,
+        metadata={
+            "claim_key": contradiction.claim_key,
+            "exhibit_carriage_ids": list(contradiction.exhibit_carriage_ids),
+        },
     )
