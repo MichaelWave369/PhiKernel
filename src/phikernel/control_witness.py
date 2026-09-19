@@ -114,6 +114,10 @@ class ControlActionRule:
         _require_nonempty("target", self.target)
         if self.max_count <= 0:
             raise ControlWitnessError("action rule max_count must be > 0")
+        if any(char in self.scope for char in "*?[]"):
+            raise ControlWitnessError(
+                "v0.2 bounded-control scopes must be exact; glob metacharacters are forbidden"
+            )
         if not self.rollback_required:
             raise ControlWitnessError(
                 "v0.2 bounded-control actions require a declared rollback path"
@@ -1089,6 +1093,28 @@ def start_control_session(
         raise ControlWitnessError("grant contract hash mismatch")
     if grant.actor_id != contract.actor_id:
         raise ControlWitnessError("grant actor does not match contract")
+    if tuple(grant.warrant.scopes) != contract.scopes:
+        raise ControlWitnessError(
+            "bounded-control warrant scopes do not exactly match contract"
+        )
+    expected_budgets = {
+        budget.kind: budget.limit for budget in contract.resource_limits
+    }
+    actual_budgets = {
+        budget.kind: budget.limit for budget in grant.warrant.budgets
+    }
+    if actual_budgets != expected_budgets:
+        raise ControlWitnessError(
+            "bounded-control warrant budgets do not exactly match contract"
+        )
+    if any(budget.spent != 0 for budget in grant.warrant.budgets):
+        raise ControlWitnessError(
+            "control session must start from an unspent dedicated warrant"
+        )
+    if grant.warrant.metadata.get("control_contract_hash") != contract.contract_hash:
+        raise ControlWitnessError(
+            "bounded-control warrant metadata is not bound to contract"
+        )
     if grant.warrant.revoked:
         raise ControlWitnessError("control grant warrant is revoked")
     if grant.warrant.is_expired(now=timestamp):
@@ -1438,9 +1464,9 @@ def record_control_outcome(
     _require_nonempty("action_id", action_id)
     _require_nonempty("result_ref", result_ref)
 
-    if session.stopped:
+    if session.stopped and session.pending_action_id is None:
         raise ControlWitnessError(
-            "cannot record action outcome after session has stopped"
+            "stopped session has no pending action to close"
         )
     if session.pending_action_id is None:
         raise ControlWitnessError(
@@ -1452,30 +1478,45 @@ def record_control_outcome(
         )
 
     expected_rollback = session.pending_rollback_ref
+    was_stopped = session.stopped
+    prior_stop_reason = session.stop_reason
     if success:
         if rollback_performed:
             raise ControlWitnessError(
                 "successful action may not claim failure rollback"
             )
         rollback_satisfied = True
-        terminal = False
-        reason = "successful bounded-control action receipted"
+        terminal = was_stopped
+        reason = (
+            f"outcome receipted after prior stop: {prior_stop_reason}"
+            if was_stopped
+            else "successful bounded-control action receipted"
+        )
         updated_warrant = session.warrant
-        stop_reason = None
+        stop_reason = prior_stop_reason if was_stopped else None
     else:
         rollback_satisfied = (
             rollback_performed
             and rollback_ref is not None
             and rollback_ref == expected_rollback
         )
-        terminal = contract.terminal_failure_on_action_failure
-        reason = (
+        terminal = was_stopped or contract.terminal_failure_on_action_failure
+        failure_reason = (
             "action failed; rollback verified; terminal control stop"
             if rollback_satisfied
             else "action failed; rollback missing/mismatched; terminal control stop"
         )
-        updated_warrant = session.warrant.revoke(reason=reason)
-        stop_reason = reason
+        reason = (
+            f"{prior_stop_reason}; {failure_reason}"
+            if was_stopped and prior_stop_reason
+            else failure_reason
+        )
+        updated_warrant = (
+            session.warrant
+            if session.warrant.revoked
+            else session.warrant.revoke(reason=reason)
+        )
+        stop_reason = prior_stop_reason or reason
 
     receipt_id = str(uuid.uuid4())
     updated = replace(
