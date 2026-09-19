@@ -67,6 +67,7 @@ from phikernel.witness_bench import (
     SHADOW,
     PromotionCollapseReceipt,
     PromotionState,
+    collapse_to_shadow,
 )
 
 
@@ -275,6 +276,15 @@ def orchestrate_runtime(
                 reason=blocked_reason,
                 at=evaluated_at,
             )
+        elif promotion_state.mode == BOUNDED_CONTROL:
+            state_after, collapse_receipt = collapse_to_shadow(
+                promotion_state,
+                source_ref="runtime-control-state",
+                reason=blocked_reason,
+                collapsed_at=evaluated_at,
+            )
+            session_after = None
+            stop_receipt = None
         else:
             state_after = promotion_state
             session_after = control_session
