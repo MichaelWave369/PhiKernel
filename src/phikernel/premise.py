@@ -310,20 +310,23 @@ def challenge_from_scar(
     reason: str,
     created_at: float | None = None,
 ) -> PremiseChallenge:
+    timestamp = time.time() if created_at is None else float(created_at)
     return PremiseChallenge(
         challenge_id=str(uuid.uuid4()),
         premise_id=premise.premise_id,
         challenge_kind=SCAR,
         source_ref=f"scar:{scar.scar_id}",
-        severity=scar.severity,
+        severity=scar.weight_at(now=timestamp),
         challenger_id=challenger_id,
         reason=reason,
         verified=True,
-        created_at=time.time() if created_at is None else float(created_at),
+        created_at=timestamp,
         metadata={
             "scar_subject_id": scar.subject_id,
             "scar_route_key": scar.route_key,
             "scar_failure_kind": scar.failure_kind,
+            "scar_original_severity": scar.severity,
+            "scar_weight_at_challenge": scar.weight_at(now=timestamp),
         },
     )
 
@@ -389,10 +392,18 @@ def evaluate_premise(
     active_policy = policy or PremisePolicy()
     evaluated_at = time.time() if now is None else float(now)
 
-    relevant = tuple(
+    verified = tuple(
         challenge for challenge in challenges
         if challenge.premise_id == premise.premise_id and challenge.verified
     )
+    # One source receipt may challenge a premise once. Replaying the same scar,
+    # contradiction, or test receipt cannot inflate premise pressure.
+    by_source: dict[str, PremiseChallenge] = {}
+    for challenge in verified:
+        existing = by_source.get(challenge.source_ref)
+        if existing is None or challenge.severity > existing.severity:
+            by_source[challenge.source_ref] = challenge
+    relevant = tuple(by_source[source] for source in sorted(by_source))
     score = sum(challenge.severity for challenge in relevant)
 
     if premise.state == RETIRED:
