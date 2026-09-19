@@ -37,6 +37,7 @@ import time
 
 from phikernel.control_state import RuntimeControlState
 from phikernel.control_witness import (
+    BoundedControlGrant,
     ControlActionLicenseReceipt,
     ControlActionRequest,
     ControlContract,
@@ -244,6 +245,7 @@ def orchestrate_runtime(
     human_constraints: tuple[HumanRouteConstraint, ...] | list[HumanRouteConstraint] = (),
     policy: RelationalRoutingPolicy | None = None,
     control_contract: ControlContract | None = None,
+    control_grant: BoundedControlGrant | None = None,
     control_session: ControlSession | None = None,
     control_action: ControlActionRequest | None = None,
     now: float | None = None,
@@ -402,7 +404,12 @@ def orchestrate_runtime(
             evaluated_at=evaluated_at,
         )
 
-    if control_contract is None or control_session is None or control_action is None:
+    if (
+        control_contract is None
+        or control_grant is None
+        or control_session is None
+        or control_action is None
+    ):
         return ConstitutionalRuntimeResult(
             disposition=BOUNDED_UNAVAILABLE,
             mode_before=BOUNDED_CONTROL,
@@ -413,8 +420,8 @@ def orchestrate_runtime(
             steering_route_key=None,
             execution_licensed=False,
             reason=(
-                "bounded control requires a live contract, session, and exact "
-                "control action request"
+                "bounded control requires a live contract, human-authorized "
+                "grant, session, and exact control action request"
             ),
             shadow_comparison=shadow.comparison,
             vnext_receipt=shadow.vnext_receipt,
@@ -463,7 +470,10 @@ def orchestrate_runtime(
         )
 
     integrity_reason = _control_binding_failure(
+        promotion_state,
         selected,
+        control_contract,
+        control_grant,
         control_session,
         control_action,
     )
@@ -552,10 +562,34 @@ def _runtime_block_reason(state: RuntimeControlState) -> str | None:
 
 
 def _control_binding_failure(
+    promotion_state: PromotionState,
     selected: RouteCandidate,
+    contract: ControlContract,
+    grant: BoundedControlGrant,
     session: ControlSession,
     action: ControlActionRequest,
 ) -> str | None:
+    if promotion_state.authorized_by_seal_id != grant.human_seal_id:
+        return "promotion state human seal lineage does not match control grant"
+    if session.grant_id != grant.grant_id:
+        return "control session does not belong to supplied control grant"
+    if grant.contract_id != contract.contract_id:
+        return "control grant references different contract"
+    if grant.contract_hash != contract.contract_hash:
+        return "control grant contract hash mismatch"
+    if grant.actor_id != contract.actor_id:
+        return "control grant actor does not match contract actor"
+    if grant.warrant.warrant_id != session.warrant.warrant_id:
+        return "control session warrant identity does not match control grant"
+    if tuple(grant.warrant.scopes) != contract.scopes:
+        return "control grant warrant scopes do not exactly match contract"
+    if tuple(session.warrant.scopes) != contract.scopes:
+        return "control session warrant scopes do not exactly match contract"
+    if (
+        session.warrant.metadata.get("control_contract_hash")
+        != contract.contract_hash
+    ):
+        return "control session warrant is not bound to exact contract hash"
     if selected.actor_id != action.actor_id:
         return "selected route actor does not match control action actor"
     if selected.actor_id != session.actor_id:
