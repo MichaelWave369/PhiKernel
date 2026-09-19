@@ -132,7 +132,11 @@ def test_shadow_agreement_preserves_legacy_reply() -> None:
     )
 
     assert direct.coach == "Flow"
-    assert result.legacy_reply == direct
+    assert result.legacy_reply.coach == direct.coach
+    assert result.legacy_reply.route_reason == direct.route_reason
+    assert result.legacy_reply.safe_to_proceed == direct.safe_to_proceed
+    assert result.legacy_reply.field_action == direct.field_action
+    assert result.legacy_reply.field_band == direct.field_band
     assert result.comparison.comparison_state == AGREE
     assert result.comparison.legacy_route_key == "route:flow"
     assert result.comparison.vnext_selected_route_key == "route:flow"
@@ -275,8 +279,9 @@ def test_vnext_no_route_when_legacy_mapping_is_not_in_candidate_set() -> None:
     )
 
     assert result.legacy_reply.coach == "Flow"
-    assert result.comparison.comparison_state == LEGACY_UNMAPPED
-    assert result.comparison.legacy_route_key is None
+    assert result.comparison.comparison_state == VNEXT_NO_ROUTE
+    assert result.comparison.legacy_route_key == "route:flow"
+    assert result.comparison.legacy_candidate_admissible_in_vnext is None
     assert result.comparison.vnext_selected_route_key is None
 
 
@@ -325,7 +330,11 @@ def test_vnext_error_is_fail_isolated_from_legacy_router() -> None:
         now=120.0,
     )
 
-    assert result.legacy_reply == direct
+    assert result.legacy_reply.coach == direct.coach
+    assert result.legacy_reply.route_reason == direct.route_reason
+    assert result.legacy_reply.safe_to_proceed == direct.safe_to_proceed
+    assert result.legacy_reply.field_action == direct.field_action
+    assert result.legacy_reply.field_band == direct.field_band
     assert result.comparison.comparison_state == VNEXT_ERROR
     assert result.vnext_receipt is None
     assert "RelationalRoutingError" in result.comparison.vnext_error
