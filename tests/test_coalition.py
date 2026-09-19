@@ -65,7 +65,7 @@ def _sponsor(*, issued_at=100.0, lifetime=200.0):
     )
 
 
-def _coalition_warrant(charter=None, sponsor=None, *, issued_at=102.0):
+def _coalition_grant(charter=None, sponsor=None, *, issued_at=102.0):
     charter = charter or _active_charter()
     sponsor = sponsor or _sponsor()
     return issue_coalition_warrant(
@@ -171,7 +171,8 @@ def test_expired_charter_cannot_activate() -> None:
 
 def test_coalition_warrant_is_borne_by_coalition_not_members() -> None:
     charter = _active_charter()
-    warrant = _coalition_warrant(charter=charter)
+    grant = _coalition_grant(charter=charter)
+    warrant = grant.coalition_warrant
 
     assert warrant.bearer == charter.coalition_id
     assert warrant.parent_warrant_id is not None
@@ -223,16 +224,60 @@ def test_coalition_budget_cannot_exceed_sponsor_remaining_budget() -> None:
         )
 
 
+def test_coalition_budget_is_reserved_from_sponsor_at_grant_time() -> None:
+    charter = _active_charter()
+    sponsor = _sponsor()
+
+    grant = _coalition_grant(charter=charter, sponsor=sponsor)
+
+    assert sponsor.remaining("compute_ms") == pytest.approx(1000.0)
+    assert sponsor.remaining("tokens") == pytest.approx(5000.0)
+    assert grant.sponsor_warrant_after.remaining("compute_ms") == pytest.approx(600.0)
+    assert grant.sponsor_warrant_after.remaining("tokens") == pytest.approx(3800.0)
+    assert len(grant.reservation_receipts) == 2
+    assert all(
+        receipt.authority_change == "NONE"
+        for receipt in grant.reservation_receipts
+    )
+    assert grant.authority_change == "NONE"
+    assert grant.constitutional_change == "NONE"
+
+
+def test_two_coalitions_cannot_oversubscribe_same_sponsor_budget() -> None:
+    first_charter = _active_charter(created_at=100.0)
+    sponsor = _sponsor()
+    first = issue_coalition_warrant(
+        first_charter,
+        sponsor,
+        scopes=("execute:tool/python",),
+        budgets=(ResourceBudget("compute_ms", 700.0),),
+        issued_at=102.0,
+    )
+
+    second_charter = _active_charter(created_at=103.0)
+    with pytest.raises(CoalitionError):
+        issue_coalition_warrant(
+            second_charter,
+            first.sponsor_warrant_after,
+            scopes=("execute:tool/python",),
+            budgets=(ResourceBudget("compute_ms", 400.0),),
+            issued_at=105.0,
+        )
+
+    assert first.sponsor_warrant_after.remaining("compute_ms") == pytest.approx(300.0)
+
+
 def test_coalition_warrant_lifetime_is_capped_by_sponsor() -> None:
     charter = _active_charter(created_at=100.0, lifetime=500.0)
     sponsor = _sponsor(issued_at=100.0, lifetime=20.0)
 
-    warrant = issue_coalition_warrant(
+    grant = issue_coalition_warrant(
         charter,
         sponsor,
         scopes=("execute:tool/python",),
         issued_at=105.0,
     )
+    warrant = grant.coalition_warrant
 
     assert warrant.expires_at == pytest.approx(120.0)
     assert warrant.expires_at < charter.expires_at
@@ -240,7 +285,7 @@ def test_coalition_warrant_lifetime_is_capped_by_sponsor() -> None:
 
 def test_coalition_can_perform_governed_transition_under_its_own_warrant() -> None:
     charter = _active_charter()
-    warrant = _coalition_warrant(charter=charter)
+    warrant = _coalition_grant(charter=charter).coalition_warrant
 
     proposal = TransitionProposal.create(
         actor_id=charter.coalition_id,
@@ -261,7 +306,7 @@ def test_coalition_can_perform_governed_transition_under_its_own_warrant() -> No
 
 def test_member_cannot_replay_coalition_transition_with_coalition_warrant() -> None:
     charter = _active_charter()
-    warrant = _coalition_warrant(charter=charter)
+    warrant = _coalition_grant(charter=charter).coalition_warrant
 
     proposal = TransitionProposal.create(
         actor_id="member:coder",
@@ -278,7 +323,7 @@ def test_member_cannot_replay_coalition_transition_with_coalition_warrant() -> N
 
 def test_success_credit_stays_with_coalition_not_members() -> None:
     charter = _active_charter()
-    warrant = _coalition_warrant(charter=charter)
+    warrant = _coalition_grant(charter=charter).coalition_warrant
     proposal = TransitionProposal.create(
         actor_id=charter.coalition_id,
         operation="execute",
@@ -304,7 +349,7 @@ def test_success_credit_stays_with_coalition_not_members() -> None:
 
 def test_degradation_reduces_capability_union_without_changing_authority_law() -> None:
     charter = _active_charter()
-    warrant = _coalition_warrant(charter=charter)
+    warrant = _coalition_grant(charter=charter).coalition_warrant
 
     degraded, receipt = degrade_coalition(
         charter,
@@ -346,7 +391,7 @@ def test_degradation_cannot_collapse_below_two_members() -> None:
 
 def test_disband_revokes_warrant_and_leaves_zero_temporary_grants() -> None:
     charter = _active_charter()
-    warrant = _coalition_warrant(charter=charter)
+    warrant = _coalition_grant(charter=charter).coalition_warrant
 
     dissolved, revoked, receipt = disband_coalition(
         charter,
@@ -381,23 +426,29 @@ def test_disband_revokes_warrant_and_leaves_zero_temporary_grants() -> None:
     assert member_check.allowed is False
 
 
-def test_disband_does_not_modify_sponsor_warrant() -> None:
+def test_disband_does_not_refund_or_mutate_original_sponsor_implicitly() -> None:
     charter = _active_charter()
     sponsor = _sponsor()
-    coalition_warrant = _coalition_warrant(
+    grant = _coalition_grant(
         charter=charter,
         sponsor=sponsor,
     )
 
     _, revoked, _ = disband_coalition(
         charter,
-        coalition_warrant,
+        grant.coalition_warrant,
         reason="task complete",
         dissolved_at=110.0,
     )
 
     assert revoked.revoked is True
-    assert sponsor.revoked is False
-    assert sponsor.bearer == "runtime:coalition-factory"
+
+    # Immutable original remains historical pre-reservation state.
     assert sponsor.remaining("compute_ms") == pytest.approx(1000.0)
     assert sponsor.remaining("tokens") == pytest.approx(5000.0)
+
+    # Governed successor retains the reservation. There is no silent refund.
+    assert grant.sponsor_warrant_after.remaining("compute_ms") == pytest.approx(600.0)
+    assert grant.sponsor_warrant_after.remaining("tokens") == pytest.approx(3800.0)
+    assert sponsor.revoked is False
+    assert grant.sponsor_warrant_after.revoked is False
