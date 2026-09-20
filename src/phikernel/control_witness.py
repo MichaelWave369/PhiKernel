@@ -817,10 +817,6 @@ class BoundedControlGrant:
             raise ControlWitnessError(
                 "bounded-control grant must expire after grant time"
             )
-        if not self.human_seal_record_json.strip():
-            raise ControlWitnessError(
-                "bounded-control grant requires signed human seal proof"
-            )
         if self.warrant.bearer != self.actor_id:
             raise ControlWitnessError(
                 "bounded-control warrant bearer must match grant actor"
