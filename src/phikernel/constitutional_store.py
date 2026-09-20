@@ -37,6 +37,7 @@ from phikernel.control_witness import (
     ControlContract,
     ControlPromotionReceipt,
 )
+from phikernel.mutability import HumanAuthoritySeal, MutabilityError
 from phikernel.warrant import ResourceBudget, Warrant
 from phikernel.witness_bench import (
     ADVISE,
@@ -500,6 +501,40 @@ def _validate_state(
     )
 
 
+def _validate_embedded_human_seal(
+    record_json: str,
+    *,
+    expected_seal_id: str,
+    expected_actor_id: str,
+    expected_authority_ref: str,
+) -> HumanAuthoritySeal | None:
+    if not record_json.strip():
+        return None
+    try:
+        raw = json.loads(record_json)
+        if not isinstance(raw, dict):
+            raise TypeError("seal proof must be a JSON object")
+        seal = HumanAuthoritySeal.from_record(raw)
+    except (json.JSONDecodeError, TypeError, MutabilityError) as exc:
+        raise ConstitutionalPersistenceLineageError(
+            "persisted human seal proof is malformed"
+        ) from exc
+
+    if seal.seal_id != expected_seal_id:
+        raise ConstitutionalPersistenceLineageError(
+            "persisted human seal proof id mismatch"
+        )
+    if seal.actor_id != expected_actor_id:
+        raise ConstitutionalPersistenceLineageError(
+            "persisted human seal proof actor mismatch"
+        )
+    if seal.authority_ref != expected_authority_ref:
+        raise ConstitutionalPersistenceLineageError(
+            "persisted human seal proof authority_ref mismatch"
+        )
+    return seal
+
+
 def _require_no_active_control(state: PersistedConstitutionalState) -> None:
     if any(
         item is not None
@@ -553,6 +588,12 @@ def _validate_advise_receipt(
         raise ConstitutionalPersistenceLineageError(
             "ADVISE human seal lineage does not match authorization receipt"
         )
+    _validate_embedded_human_seal(
+        receipt.human_seal_record_json,
+        expected_seal_id=receipt.human_seal_id,
+        expected_actor_id=receipt.human_actor_id,
+        expected_authority_ref=receipt.authority_ref,
+    )
 
 
 def _validate_bounded_lineage(
@@ -601,6 +642,30 @@ def _validate_bounded_lineage(
     if grant.human_seal_id != promotion.authorized_by_seal_id:
         raise ConstitutionalPersistenceLineageError(
             "control grant human seal does not match promotion state"
+        )
+    grant_seal = _validate_embedded_human_seal(
+        grant.human_seal_record_json,
+        expected_seal_id=grant.human_seal_id,
+        expected_actor_id=grant.human_actor_id,
+        expected_authority_ref=grant.authority_ref,
+    )
+    receipt_seal = _validate_embedded_human_seal(
+        control_receipt.human_seal_record_json,
+        expected_seal_id=control_receipt.human_seal_id,
+        expected_actor_id=control_receipt.human_actor_id,
+        expected_authority_ref=control_receipt.authority_ref,
+    )
+    if (grant_seal is None) != (receipt_seal is None):
+        raise ConstitutionalPersistenceLineageError(
+            "control grant and receipt disagree on human seal proof presence"
+        )
+    if (
+        grant_seal is not None
+        and receipt_seal is not None
+        and grant_seal.to_record() != receipt_seal.to_record()
+    ):
+        raise ConstitutionalPersistenceLineageError(
+            "control grant and receipt carry different human seal proof"
         )
     if grant.promotion_proposal_id != control_receipt.proposal_id:
         raise ConstitutionalPersistenceLineageError(
@@ -1000,6 +1065,7 @@ def _advise_receipt_to_record(
         "human_actor_id": receipt.human_actor_id,
         "authority_ref": receipt.authority_ref,
         "applied_at": receipt.applied_at,
+        "human_seal_record_json": receipt.human_seal_record_json,
         "authority_change": receipt.authority_change,
         "routing_mode_change": receipt.routing_mode_change,
         "steering_authority_change": receipt.steering_authority_change,
@@ -1023,6 +1089,9 @@ def _advise_receipt_from_record(
         human_actor_id=str(record["human_actor_id"]),
         authority_ref=str(record["authority_ref"]),
         applied_at=float(record["applied_at"]),
+        human_seal_record_json=str(
+            record.get("human_seal_record_json", "")
+        ),
         authority_change=str(record.get("authority_change", "NONE")),
         routing_mode_change=str(record.get("routing_mode_change", "HUMAN_AUTHORIZED_APPLIED")),
         steering_authority_change=str(record.get("steering_authority_change", "NONE")),
@@ -1132,6 +1201,7 @@ def _control_grant_to_record(grant: BoundedControlGrant) -> dict[str, Any]:
         "authority_ref": grant.authority_ref,
         "granted_at": grant.granted_at,
         "expires_at": grant.expires_at,
+        "human_seal_record_json": grant.human_seal_record_json,
         "authority_change": grant.authority_change,
         "routing_mode_change": grant.routing_mode_change,
         "steering_authority_change": grant.steering_authority_change,
@@ -1154,6 +1224,9 @@ def _control_grant_from_record(record: dict[str, Any]) -> BoundedControlGrant:
         authority_ref=str(record["authority_ref"]),
         granted_at=float(record["granted_at"]),
         expires_at=float(record["expires_at"]),
+        human_seal_record_json=str(
+            record.get("human_seal_record_json", "")
+        ),
         authority_change=str(record["authority_change"]),
         routing_mode_change=str(record["routing_mode_change"]),
         steering_authority_change=str(record["steering_authority_change"]),
@@ -1183,6 +1256,7 @@ def _control_receipt_to_record(
         "human_actor_id": receipt.human_actor_id,
         "authority_ref": receipt.authority_ref,
         "applied_at": receipt.applied_at,
+        "human_seal_record_json": receipt.human_seal_record_json,
         "authority_change": receipt.authority_change,
         "routing_mode_change": receipt.routing_mode_change,
         "steering_authority_change": receipt.steering_authority_change,
@@ -1210,6 +1284,9 @@ def _control_receipt_from_record(
         human_actor_id=str(record["human_actor_id"]),
         authority_ref=str(record["authority_ref"]),
         applied_at=float(record["applied_at"]),
+        human_seal_record_json=str(
+            record.get("human_seal_record_json", "")
+        ),
         authority_change=str(record["authority_change"]),
         routing_mode_change=str(record["routing_mode_change"]),
         steering_authority_change=str(record["steering_authority_change"]),

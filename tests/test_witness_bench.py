@@ -1,4 +1,5 @@
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -28,6 +29,30 @@ from phikernel.witness_bench import (
     propose_promotion,
     witness_hash,
 )
+
+
+class _TestManifest:
+    anchor_id = "anchor:test-witness"
+
+    def manifest_hash(self):
+        return "b" * 64
+
+
+class _TestAnchor:
+    def load_manifest(self):
+        return _TestManifest()
+
+    def sign_bytes(self, passphrase, payload):
+        return "fixture-signature"
+
+    def verify_bytes(self, payload, signature_b64):
+        return SimpleNamespace(
+            valid=(signature_b64 == "fixture-signature"),
+            reason="fixture signature verification",
+        )
+
+
+_TEST_ANCHOR = _TestAnchor()
 
 
 def _shadow_receipt(
@@ -509,7 +534,9 @@ def test_bound_human_seal_authorizes_advise_without_steering_authority() -> None
         reason="witness thresholds satisfied",
         created_at=210.0,
     )
-    seal = HumanAuthoritySeal.create(
+    seal = HumanAuthoritySeal.create_signed(
+        anchor_service=_TEST_ANCHOR,
+        passphrase="fixture",
         actor_id="human:mikey",
         authority_ref="anchor:human",
         issued_at=220.0,
@@ -525,6 +552,7 @@ def test_bound_human_seal_authorizes_advise_without_steering_authority() -> None
         proposal,
         report,
         seal,
+        anchor_service=_TEST_ANCHOR,
         applied_at=221.0,
     )
 

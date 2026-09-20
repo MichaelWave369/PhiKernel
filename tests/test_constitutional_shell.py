@@ -21,6 +21,7 @@ from phikernel.control_witness import (
     ControlSession,
 )
 from phikernel.heart import RuntimeBridge
+from phikernel.mutability import HumanAuthoritySeal
 from phikernel.shell import PhiKernelShell, RuntimePaths
 from phikernel.warrant import ResourceBudget, Warrant
 from phikernel.witness_bench import (
@@ -147,19 +148,40 @@ def _ready_shell(
 
 def _persist_advise(shell: PhiKernelShell, *, base: float | None = None):
     t0 = time.time() if base is None else float(base)
+    shell._ensure_runtime_services()
+    proposal_id = "proposal:advise-shell"
+    witness_report_hash = "a" * 64
+    seal = HumanAuthoritySeal.create_signed(
+        anchor_service=shell.anchor_service,
+        passphrase="resonance-is-the-key-369",
+        actor_id="human:mikey",
+        authority_ref="anchor:human",
+        issued_at=t0,
+        metadata={
+            "promotion_proposal_id": proposal_id,
+            "witness_report_hash": witness_report_hash,
+            "target_mode": ADVISE,
+        },
+    )
     receipt = PromotionAuthorizationReceipt(
         receipt_id="receipt:advise-shell",
-        proposal_id="proposal:advise-shell",
+        proposal_id=proposal_id,
         witness_report_id="report:advise-shell",
-        witness_report_hash="a" * 64,
+        witness_report_hash=witness_report_hash,
         prior_mode=SHADOW,
         resulting_mode=ADVISE,
         prior_revision=0,
         resulting_revision=1,
-        human_seal_id="seal:advise-shell",
-        human_actor_id="human:mikey",
-        authority_ref="anchor:human",
+        human_seal_id=seal.seal_id,
+        human_actor_id=seal.actor_id,
+        authority_ref=seal.authority_ref,
         applied_at=t0,
+        human_seal_record_json=json.dumps(
+            seal.to_record(),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ),
     )
     promotion = PromotionState(
         mode=ADVISE,
@@ -202,6 +224,25 @@ def _persist_bounded(shell: PhiKernelShell):
     )
     proposal_id = "proposal:control-shell"
     witness_report_hash = "b" * 64
+    control_seal = HumanAuthoritySeal.create_signed(
+        anchor_service=shell.anchor_service,
+        passphrase="resonance-is-the-key-369",
+        actor_id="human:mikey",
+        authority_ref="anchor:human-control",
+        issued_at=t0 + 2.0,
+        metadata={
+            "control_promotion_proposal_id": proposal_id,
+            "control_witness_report_hash": witness_report_hash,
+            "control_contract_hash": contract.contract_hash,
+            "target_mode": BOUNDED_CONTROL,
+        },
+    )
+    control_seal_json = json.dumps(
+        control_seal.to_record(),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
     warrant = Warrant.issue(
         issuer="human:mikey",
         bearer=contract.actor_id,
@@ -214,7 +255,7 @@ def _persist_bounded(shell: PhiKernelShell):
             "control_contract_hash": contract.contract_hash,
             "control_promotion_proposal_id": proposal_id,
             "control_witness_report_hash": witness_report_hash,
-            "human_seal_id": "seal:control-shell",
+            "human_seal_id": control_seal.seal_id,
         },
     )
     assert warrant.expires_at is not None
@@ -228,11 +269,12 @@ def _persist_bounded(shell: PhiKernelShell):
         witness_report_hash=witness_report_hash,
         actor_id=contract.actor_id,
         warrant=warrant,
-        human_seal_id="seal:control-shell",
-        human_actor_id="human:mikey",
-        authority_ref="anchor:human-control",
+        human_seal_id=control_seal.seal_id,
+        human_actor_id=control_seal.actor_id,
+        authority_ref=control_seal.authority_ref,
         granted_at=t0 + 2.0,
         expires_at=warrant.expires_at,
+        human_seal_record_json=control_seal_json,
     )
     receipt = ControlPromotionReceipt(
         receipt_id="receipt:control-shell",
@@ -251,6 +293,7 @@ def _persist_bounded(shell: PhiKernelShell):
         human_actor_id=grant.human_actor_id,
         authority_ref=grant.authority_ref,
         applied_at=t0 + 2.0,
+        human_seal_record_json=control_seal_json,
     )
     promotion = PromotionState(
         mode=BOUNDED_CONTROL,

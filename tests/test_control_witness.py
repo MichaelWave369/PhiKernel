@@ -1,4 +1,5 @@
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -38,6 +39,30 @@ from phikernel.mutability import HumanAuthoritySeal
 from phikernel.transition import ResourceSpend
 from phikernel.warrant import ResourceBudget
 from phikernel.witness_bench import PromotionState
+
+
+class _TestManifest:
+    anchor_id = "anchor:test-control"
+
+    def manifest_hash(self):
+        return "a" * 64
+
+
+class _TestAnchor:
+    def load_manifest(self):
+        return _TestManifest()
+
+    def sign_bytes(self, passphrase, payload):
+        return "fixture-signature"
+
+    def verify_bytes(self, payload, signature_b64):
+        return SimpleNamespace(
+            valid=(signature_b64 == "fixture-signature"),
+            reason="fixture signature verification",
+        )
+
+
+_TEST_ANCHOR = _TestAnchor()
 
 
 def _contract(
@@ -142,7 +167,9 @@ def _seal(contract, report, proposal, *, issued_at=210.0, metadata_override=None
     }
     if metadata_override:
         metadata.update(metadata_override)
-    return HumanAuthoritySeal.create(
+    return HumanAuthoritySeal.create_signed(
+        anchor_service=_TEST_ANCHOR,
+        passphrase="fixture",
         actor_id="human:mikey",
         authority_ref="anchor:human-control",
         issued_at=issued_at,
@@ -169,6 +196,7 @@ def _authorized(contract=None):
         contract,
         report,
         seal,
+        anchor_service=_TEST_ANCHOR,
         applied_at=220.0,
     )
     return contract, report, bounded, grant, receipt, seal
@@ -503,7 +531,8 @@ def test_generic_human_seal_cannot_authorize_bounded_control() -> None:
             contract,
             report,
             generic,
-            applied_at=220.0,
+            anchor_service=_TEST_ANCHOR,
+        applied_at=220.0,
         )
 
 
@@ -533,7 +562,8 @@ def test_human_control_seal_must_bind_exact_contract_and_report() -> None:
             contract,
             report,
             bad,
-            applied_at=220.0,
+            anchor_service=_TEST_ANCHOR,
+        applied_at=220.0,
         )
 
 
@@ -558,7 +588,8 @@ def test_human_control_seal_may_not_predate_proposal() -> None:
             contract,
             report,
             seal,
-            applied_at=220.0,
+            anchor_service=_TEST_ANCHOR,
+        applied_at=220.0,
         )
 
 

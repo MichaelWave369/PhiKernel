@@ -36,6 +36,7 @@ v0.2 establishes a tested constitutional runtime core for:
 - restart-safe bounded constitutional action transactions
 - non-replaying constitutional action crash recovery
 - Anchor-signed constitutional head attestations
+- Anchor-signed human routing/control authorization seals
 
 The current CLI still exposes the original substrate and legacy coach-routing path. The v0.2 constitutional layers are implemented as Python runtime APIs and are not yet fully wired into `phik route` / `phik ask`.
 
@@ -497,9 +498,55 @@ The passphrase is required only to create a new detached signature. Verification
 uses the public key from the signed Anchor manifest.
 
 An Anchor attestation proves identity binding of persisted constitutional
-evidence. It does **not** itself grant runtime authority, promote routing mode,
-or retroactively turn the structural `HumanAuthoritySeal` object into a
-cryptographic human authorization.
+evidence. It does **not** itself grant runtime authority or promote routing
+mode.
+
+**Anchor-signed human constitutional authority**  
+`HumanAuthoritySeal`, `constitutional_authority.py`
+
+Privilege-expanding routing/control authorization now requires the existing
+`HumanAuthoritySeal` itself to carry an Ed25519 signature from the current
+StateAnchor.
+
+The signed payload binds:
+
+- seal ID
+- human actor ID
+- authority reference
+- issue time
+- exact authorization metadata
+- exact Anchor ID
+- exact signed Anchor manifest hash
+- protocol domain separator
+
+For SHADOW -> ADVISE, the signed metadata must bind the exact promotion proposal,
+Witness Bench report hash, and target mode.
+
+For ADVISE -> BOUNDED_CONTROL, the signed metadata must bind the exact control
+promotion proposal, Control Witness report hash, control contract hash, and
+target mode.
+
+The resulting promotion/control receipts persist the exact signed seal record.
+The bounded-control grant also carries the same proof.
+
+Legacy unsigned receipts remain structurally readable for audit and recovery,
+but the shell refuses to actively use promoted ADVISE or BOUNDED_CONTROL state
+unless the persisted signed authority proof verifies against the current
+StateAnchor.
+
+This is intentionally distinct from constitutional head attestation:
+
+```text
+ledger head attestation
+= "this persisted ledger was signed by this Anchor"
+
+signed HumanAuthoritySeal
+= "this exact privilege transition was signed by this Anchor"
+```
+
+L0/L1 mutability still accepts the legacy structural seal form in v0.2 for
+compatibility. Extending mandatory cryptographic human proof across every
+mutability surface remains separate hardening.
 
 ---
 
@@ -789,11 +836,10 @@ The runtime is designed to fail conservatively:
 - control failure cannot silently route around the refusal
 - runtime evidence may influence routing without rewriting constitutional law
 
-`HumanAuthoritySeal` is still a structural human-authorization object. The
-constitutional attestation layer authenticates persisted ledger heads, not the
-individual promotion/control seal action itself. Binding each human
-authorization receipt directly to the Anchor identity remains a separate
-hardening step.
+Routing/control `HumanAuthoritySeal` use is now cryptographically bound to the
+StateAnchor and persisted with promotion/control receipts. L0/L1 legacy
+mutability surfaces still permit the structural seal form for compatibility;
+those remaining surfaces are not yet cryptographically mandatory.
 
 ---
 
@@ -879,6 +925,7 @@ restart-safe shell state resume
 bounded constitutional action transactions
 non-replaying crash reconciliation
 Anchor-signed constitutional head attestations
+Anchor-signed human routing/control authorization
 ```
 
 The result is not an autonomous operating system and not a generic agent framework.

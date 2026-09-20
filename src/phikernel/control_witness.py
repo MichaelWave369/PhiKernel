@@ -20,6 +20,7 @@ veto, expiry, and terminal failure semantics.
 
 from dataclasses import dataclass, field, replace
 from typing import Any
+import json
 import time
 import uuid
 
@@ -802,6 +803,7 @@ class BoundedControlGrant:
     authority_ref: str
     granted_at: float
     expires_at: float
+    human_seal_record_json: str = ""
     authority_change: str = HUMAN_AUTHORIZED_BOUNDED_LEASE
     routing_mode_change: str = HUMAN_AUTHORIZED_APPLIED
     steering_authority_change: str = HUMAN_AUTHORIZED_BOUNDED
@@ -859,6 +861,7 @@ class ControlPromotionReceipt:
     human_actor_id: str
     authority_ref: str
     applied_at: float
+    human_seal_record_json: str = ""
     authority_change: str = HUMAN_AUTHORIZED_BOUNDED_LEASE
     routing_mode_change: str = HUMAN_AUTHORIZED_APPLIED
     steering_authority_change: str = HUMAN_AUTHORIZED_BOUNDED
@@ -873,6 +876,7 @@ def authorize_bounded_control(
     report: ControlWitnessReport,
     human_seal: HumanAuthoritySeal,
     *,
+    anchor_service: Any | None = None,
     applied_at: float | None = None,
 ) -> tuple[PromotionState, BoundedControlGrant, ControlPromotionReceipt]:
     if state.mode != ADVISE:
@@ -916,6 +920,15 @@ def authorize_bounded_control(
     if human_seal.issued_at < proposal.created_at:
         raise ControlWitnessError(
             "human authorization seal may not predate control proposal"
+        )
+
+    valid_signature, signature_reason = human_seal.verify_anchor(
+        anchor_service
+    )
+    if not valid_signature:
+        raise ControlWitnessError(
+            "bounded-control promotion requires Anchor-signed human "
+            f"authority seal: {signature_reason}"
         )
 
     metadata = human_seal.metadata
@@ -975,6 +988,12 @@ def authorize_bounded_control(
         authority_ref=human_seal.authority_ref,
         granted_at=timestamp,
         expires_at=warrant.expires_at,
+        human_seal_record_json=json.dumps(
+            human_seal.to_record(),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ),
     )
 
     receipt_id = str(uuid.uuid4())
@@ -1001,6 +1020,12 @@ def authorize_bounded_control(
         human_actor_id=human_seal.actor_id,
         authority_ref=human_seal.authority_ref,
         applied_at=timestamp,
+        human_seal_record_json=json.dumps(
+            human_seal.to_record(),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ),
     )
     return updated_state, grant, receipt
 

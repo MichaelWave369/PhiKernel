@@ -16,8 +16,9 @@ L2 ROUTING WEATHER
     Runtime may write ephemeral/decaying routing state directly. L2 state has
     no authority to mutate L1, L0, warrants, or citation law.
 
-The module is structural. HumanAuthoritySeal.authority_ref is an opaque reference
-whose cryptographic/identity verification belongs to the integration layer.
+HumanAuthoritySeal supports both legacy structural seals and Anchor-signed
+seals. Privilege-expanding routing/control authorization requires the signed
+form and verifies it against the existing StateAnchor identity.
 """
 
 from dataclasses import dataclass, field, replace
@@ -30,6 +31,7 @@ import uuid
 
 
 MUTABILITY_VERSION = "0.2.0"
+HUMAN_AUTHORITY_SEAL_DOMAIN = "phikernel:human-authority-seal:v0.2.0"
 
 L0 = "L0_CONSTITUTION"
 L1 = "L1_POLICY"
@@ -68,6 +70,10 @@ class HumanAuthoritySeal:
     authority_ref: str
     issued_at: float = field(default_factory=time.time)
     metadata: dict[str, Any] = field(default_factory=dict)
+    anchor_id: str = ""
+    anchor_manifest_hash: str = ""
+    signature: str = ""
+    domain: str = HUMAN_AUTHORITY_SEAL_DOMAIN
     version: str = MUTABILITY_VERSION
 
     def __post_init__(self) -> None:
@@ -81,6 +87,66 @@ class HumanAuthoritySeal:
                 raise MutabilityError(f"{name} must be non-empty")
         if self.actor_kind != HUMAN:
             raise MutabilityError("constitutional/policy authority seal must be HUMAN")
+        if self.domain != HUMAN_AUTHORITY_SEAL_DOMAIN:
+            raise MutabilityError("human authority seal domain mismatch")
+
+        crypto_values = (
+            bool(self.anchor_id.strip()),
+            bool(self.anchor_manifest_hash.strip()),
+            bool(self.signature.strip()),
+        )
+        if any(crypto_values) and not all(crypto_values):
+            raise MutabilityError(
+                "signed human authority seal requires anchor_id, "
+                "anchor_manifest_hash, and signature together"
+            )
+        if self.anchor_manifest_hash:
+            if len(self.anchor_manifest_hash) != 64:
+                raise MutabilityError(
+                    "anchor_manifest_hash must be SHA-256 hex"
+                )
+            try:
+                int(self.anchor_manifest_hash, 16)
+            except ValueError as exc:
+                raise MutabilityError(
+                    "anchor_manifest_hash must be hexadecimal"
+                ) from exc
+
+    @property
+    def is_signed(self) -> bool:
+        return bool(
+            self.anchor_id
+            and self.anchor_manifest_hash
+            and self.signature
+        )
+
+    def payload_dict(self) -> dict[str, Any]:
+        return {
+            "version": self.version,
+            "domain": self.domain,
+            "seal_id": self.seal_id,
+            "actor_id": self.actor_id,
+            "actor_kind": self.actor_kind,
+            "authority_ref": self.authority_ref,
+            "issued_at": self.issued_at,
+            "metadata": self.metadata,
+            "anchor_id": self.anchor_id,
+            "anchor_manifest_hash": self.anchor_manifest_hash,
+        }
+
+    def canonical_bytes(self) -> bytes:
+        return _canonical_json(self.payload_dict()).encode("utf-8")
+
+    def payload_hash(self) -> str:
+        return hashlib.sha256(self.canonical_bytes()).hexdigest()
+
+    def to_record(self) -> dict[str, Any]:
+        return {
+            **self.payload_dict(),
+            "signature": self.signature,
+            "payload_hash": self.payload_hash(),
+            "is_signed": self.is_signed,
+        }
 
     @classmethod
     def create(
@@ -91,6 +157,7 @@ class HumanAuthoritySeal:
         issued_at: float | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> "HumanAuthoritySeal":
+        """Create a legacy structural seal with no cryptographic proof."""
         return cls(
             seal_id=str(uuid.uuid4()),
             actor_id=actor_id,
@@ -99,6 +166,108 @@ class HumanAuthoritySeal:
             issued_at=time.time() if issued_at is None else float(issued_at),
             metadata=dict(metadata or {}),
         )
+
+    @classmethod
+    def create_signed(
+        cls,
+        *,
+        anchor_service: Any,
+        passphrase: str,
+        actor_id: str,
+        authority_ref: str,
+        issued_at: float | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> "HumanAuthoritySeal":
+        """Create an Anchor-signed human authority seal.
+
+        The existing encrypted StateAnchor signing key is reused. No second
+        constitutional keypair is created.
+        """
+        timestamp = time.time() if issued_at is None else float(issued_at)
+        manifest = anchor_service.load_manifest()
+        seal_id = str(uuid.uuid4())
+        fields = {
+            "version": MUTABILITY_VERSION,
+            "domain": HUMAN_AUTHORITY_SEAL_DOMAIN,
+            "seal_id": seal_id,
+            "actor_id": actor_id,
+            "actor_kind": HUMAN,
+            "authority_ref": authority_ref,
+            "issued_at": timestamp,
+            "metadata": dict(metadata or {}),
+            "anchor_id": manifest.anchor_id,
+            "anchor_manifest_hash": manifest.manifest_hash(),
+        }
+        payload = _canonical_json(fields).encode("utf-8")
+        signature = anchor_service.sign_bytes(passphrase, payload)
+        return cls(
+            seal_id=seal_id,
+            actor_id=actor_id,
+            actor_kind=HUMAN,
+            authority_ref=authority_ref,
+            issued_at=timestamp,
+            metadata=dict(metadata or {}),
+            anchor_id=manifest.anchor_id,
+            anchor_manifest_hash=manifest.manifest_hash(),
+            signature=signature,
+        )
+
+    def verify_anchor(self, anchor_service: Any) -> tuple[bool, str]:
+        """Verify exact seal bytes against the current StateAnchor."""
+        if not self.is_signed:
+            return False, "human authority seal is not cryptographically signed"
+
+        try:
+            manifest = anchor_service.load_manifest()
+            if self.anchor_id != manifest.anchor_id:
+                return False, "human authority seal anchor_id mismatch"
+            if self.anchor_manifest_hash != manifest.manifest_hash():
+                return False, "human authority seal Anchor manifest hash mismatch"
+            verification = anchor_service.verify_bytes(
+                self.canonical_bytes(),
+                self.signature,
+            )
+        except Exception as exc:
+            return False, f"human authority seal Anchor verification failed: {exc}"
+
+        if not verification.valid:
+            return False, verification.reason
+        return True, "human authority seal signature verified successfully"
+
+    @classmethod
+    def from_record(cls, record: dict[str, Any]) -> "HumanAuthoritySeal":
+        try:
+            seal = cls(
+                version=str(record.get("version", MUTABILITY_VERSION)),
+                domain=str(
+                    record.get(
+                        "domain",
+                        HUMAN_AUTHORITY_SEAL_DOMAIN,
+                    )
+                ),
+                seal_id=str(record["seal_id"]),
+                actor_id=str(record["actor_id"]),
+                actor_kind=str(record["actor_kind"]),
+                authority_ref=str(record["authority_ref"]),
+                issued_at=float(record["issued_at"]),
+                metadata=dict(record.get("metadata", {})),
+                anchor_id=str(record.get("anchor_id", "")),
+                anchor_manifest_hash=str(
+                    record.get("anchor_manifest_hash", "")
+                ),
+                signature=str(record.get("signature", "")),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise MutabilityError(
+                "human authority seal record is malformed"
+            ) from exc
+
+        expected_hash = record.get("payload_hash")
+        if expected_hash is not None and expected_hash != seal.payload_hash():
+            raise MutabilityError(
+                "human authority seal payload hash mismatch"
+            )
+        return seal
 
 
 @dataclass(frozen=True)

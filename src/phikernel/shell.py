@@ -35,6 +35,10 @@ from phikernel.constitutional_action import (
     execute_constitutional_action,
     parse_resource_spends,
 )
+from phikernel.constitutional_authority import (
+    ConstitutionalAuthorityError,
+    verify_persisted_constitutional_authority,
+)
 from phikernel.constitutional_attestation import (
     ConstitutionalAttestationError,
     ConstitutionalAttestationStore,
@@ -391,12 +395,17 @@ class PhiKernelShell:
 
         self._ensure_runtime_services()
         try:
+            authority_signature = verify_persisted_constitutional_authority(
+                state,
+                anchor_service=self.anchor_service,
+            )
             attestation = ConstitutionalAttestationStore(
                 self.paths.runtime_root,
                 self.anchor_service,
             ).verify()
         except (
             ConstitutionalAttestationError,
+            ConstitutionalAuthorityError,
             ConstitutionalPersistenceError,
             ConstitutionalActionError,
         ) as exc:
@@ -411,6 +420,7 @@ class PhiKernelShell:
             "history_count": history_count,
             "action_journal_count": action_journal_count,
             "anchor_attestation": attestation.to_record(),
+            "authority_signature": authority_signature.to_record(),
             "mode": state.promotion_state.mode,
             "revision": state.promotion_state.revision,
             "last_receipt_id": state.promotion_state.last_receipt_id,
@@ -484,6 +494,7 @@ class PhiKernelShell:
         bundle = self._build_think_bundle(args.prompt or "")
         control_state = load_runtime_control_state(self.paths.runtime_root)
         state, persisted, _, _ = self._load_constitutional_state()
+        self._require_signed_constitutional_authority(state)
 
         result = run_constitutional_shell(
             bundle,
@@ -523,6 +534,7 @@ class PhiKernelShell:
             raise ShellError(
                 "Constitutional action requires persisted BOUNDED_CONTROL state"
             )
+        self._require_signed_constitutional_authority(state)
 
         if args.json_file and args.json_text:
             raise ShellError(
@@ -627,6 +639,29 @@ class PhiKernelShell:
                 f"Constitutional recovery failed: {exc}"
             ) from exc
         return result.to_record()
+
+    def _require_signed_constitutional_authority(
+        self,
+        state: PersistedConstitutionalState,
+    ) -> None:
+        """Fail closed before active use of unsigned promoted authority."""
+        self._ensure_runtime_services()
+        try:
+            verification = verify_persisted_constitutional_authority(
+                state,
+                anchor_service=self.anchor_service,
+            )
+        except ConstitutionalAuthorityError as exc:
+            raise ShellError(
+                f"Constitutional authority signature validation failed: {exc}"
+            ) from exc
+
+        if verification.required and not verification.valid:
+            reasons = "; ".join(verification.reasons)
+            raise ShellError(
+                "Constitutional promoted authority is not backed by "
+                f"a valid Anchor-signed human seal: {reasons}"
+            )
 
     def _load_constitutional_state(
         self,
@@ -1186,6 +1221,7 @@ class PhiKernelShell:
     def _render_constitutional_status(self, result: dict[str, Any]) -> str:
         control = result.get("control") or {}
         attestation = result.get("anchor_attestation") or {}
+        authority_signature = result.get("authority_signature") or {}
         lines = [
             ":: PHIKERNEL CONSTITUTIONAL STATUS ::",
             f"Persisted: {result.get('persisted_state_present')}",
@@ -1199,6 +1235,11 @@ class PhiKernelShell:
                 "Anchor Attested: "
                 f"{attestation.get('authenticated_current_state')} "
                 f"(valid={attestation.get('valid')} current={attestation.get('current')})"
+            ),
+            (
+                "Human Authority Signature: "
+                f"{authority_signature.get('valid')} "
+                f"(required={authority_signature.get('required')})"
             ),
         ]
         if control:
