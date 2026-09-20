@@ -1,27 +1,16 @@
 from __future__ import annotations
 
-"""
-phik_shell_v0_1_2.py
+"""PhiKernel v0.2 human-facing CLI / terminal bridge.
 
-Reference implementation for PhiKernel's XiOS-facing CLI / terminal bridge,
-now with native routing integration.
+The shell retains the original substrate commands and deterministic legacy
+CoachRouter while adding explicit access to the constitutional runtime in
+SHADOW mode through:
 
-What this version adds over v0.1.1
-----------------------------------
-- `phik route <prompt>` -> build a think bundle and route it to the coach layer.
-- `phik ask <prompt>`   -> friendly alias for `route`.
-- In-memory integration with `phik_router_v0_1_0.py`; no fake subprocess needed.
-- Shared rendering path for router replies in text or JSON mode.
+    phik constitutional route <prompt>
 
-Existing commands retained
---------------------------
-- `phik status`
-- `phik field`
-- `phik anchor show`
-- `phik capsule list`
-- `phik capsule seal`
-- `phik capsule restore <capsule_id>`
-- `phik think`
+The legacy `phik route` and `phik ask` commands remain unchanged and
+authoritative. The constitutional command observes beside them; it does not
+manufacture ADVISE or BOUNDED_CONTROL authority.
 """
 
 from dataclasses import dataclass
@@ -35,6 +24,7 @@ import time
 
 from phikernel.anc_bridge import guard_output_commit, guard_service_request
 from phikernel.control_state import RuntimeControlState, apply_operator_action, load_runtime_control_state
+from phikernel.constitutional_shell import run_constitutional_shell_shadow
 from phikernel.router import CoachReply, CoachRouter, render_reply, select_runtime_adapter
 from phikernel.trust_runtime import (
     build_operator_trust_state,
@@ -42,7 +32,7 @@ from phikernel.trust_runtime import (
 )
 
 
-DEFAULT_SHELL_VERSION = "0.1.2"
+DEFAULT_SHELL_VERSION = "0.2.0"
 DEFAULT_RUNTIME_ROOT = Path("./.phik-runtime")
 
 
@@ -343,6 +333,18 @@ class PhiKernelShell:
         bundle = self._build_think_bundle(args.prompt or "")
         return self.router.route(bundle)
 
+    def cmd_constitutional_route(self, args: argparse.Namespace) -> dict[str, Any]:
+        """Run the v0.2 constitutional routing path in SHADOW mode only."""
+        self._ensure_runtime_services()
+        bundle = self._build_think_bundle(args.prompt or "")
+        control_state = load_runtime_control_state(self.paths.runtime_root)
+        result = run_constitutional_shell_shadow(
+            bundle,
+            runtime_control_state=control_state,
+            router=self.router,
+        )
+        return result.to_record()
+
     def cmd_execute(self, args: argparse.Namespace) -> dict[str, Any]:
         self._ensure_runtime_services()
         adapter = select_runtime_adapter(getattr(args, "adapter", None))
@@ -562,6 +564,26 @@ class PhiKernelShell:
         ask.add_argument("prompt", nargs="?", default="", help="Prompt to route")
         ask.set_defaults(handler=self.cmd_ask)
 
+        constitutional = subparsers.add_parser(
+            "constitutional",
+            help="Constitutional runtime commands",
+        )
+        constitutional_sub = constitutional.add_subparsers(
+            dest="constitutional_command",
+            required=True,
+        )
+        constitutional_route = constitutional_sub.add_parser(
+            "route",
+            help="Run Crane Fly vNext in SHADOW beside the legacy router",
+        )
+        constitutional_route.add_argument(
+            "prompt",
+            nargs="?",
+            default="",
+            help="Prompt to route through the constitutional SHADOW path",
+        )
+        constitutional_route.set_defaults(handler=self.cmd_constitutional_route)
+
         control = subparsers.add_parser("control", help="Apply operator runtime-control actions")
         control.add_argument(
             "action",
@@ -601,6 +623,8 @@ class PhiKernelShell:
             return self._render_capsule_restore(result)
         if command == "think":
             return self._render_think(result)
+        if command == "constitutional" and args.constitutional_command == "route":
+            return self._render_constitutional_route(result)
         return json.dumps(result, indent=2, sort_keys=True)
 
     def _render_status(self, result: dict[str, Any]) -> str:
@@ -737,6 +761,22 @@ class PhiKernelShell:
         latest_capsule = result.get("latest_capsule")
         if latest_capsule:
             lines.append(f"Latest Capsule: {latest_capsule['capsule_id']} ({latest_capsule['capsule_type']})")
+        return "\n".join(lines)
+
+    def _render_constitutional_route(self, result: dict[str, Any]) -> str:
+        comparison = result.get("shadow_comparison") or {}
+        legacy = result.get("legacy_reply") or {}
+        lines = [
+            ":: PHIKERNEL CONSTITUTIONAL ROUTE ::",
+            f"Mode: {result.get('shell_mode')}",
+            f"Disposition: {result.get('disposition')}",
+            f"Legacy Coach: {legacy.get('coach')}",
+            f"Legacy Route: {result.get('legacy_route_key')}",
+            f"vNext Route: {(result.get('vnext_receipt') or {}).get('selected_route_key')}",
+            f"Comparison: {comparison.get('comparison_state')}",
+            f"Execution Licensed: {result.get('execution_licensed')}",
+            f"Reason: {result.get('reason')}",
+        ]
         return "\n".join(lines)
 
     def _safe_anchor_status(self, *, required: bool = False) -> dict[str, Any] | None:
