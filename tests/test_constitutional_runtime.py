@@ -13,6 +13,7 @@ from phikernel.constitutional_runtime import (
 from phikernel.control_state import RuntimeControlState
 from phikernel.control_witness import (
     ActionUsage,
+    BoundedControlGrant,
     ControlActionRequest,
     ControlActionRule,
     ControlContract,
@@ -141,9 +142,25 @@ def _control_session(contract=None, *, warrant=None):
         lifetime_seconds=100.0,
         metadata={"control_contract_hash": contract.contract_hash},
     )
+    assert warrant.expires_at is not None
+    grant = BoundedControlGrant(
+        grant_id="control-grant:1",
+        contract_id=contract.contract_id,
+        contract_hash=contract.contract_hash,
+        promotion_proposal_id="control-proposal:1",
+        witness_report_id="control-report:1",
+        witness_report_hash="a" * 64,
+        actor_id=contract.actor_id,
+        warrant=warrant,
+        human_seal_id="seal:control",
+        human_actor_id="human:mikey",
+        authority_ref="anchor:human-control",
+        granted_at=110.0,
+        expires_at=warrant.expires_at,
+    )
     session = ControlSession(
         session_id="control-session:1",
-        grant_id="control-grant:1",
+        grant_id=grant.grant_id,
         contract_id=contract.contract_id,
         contract_hash=contract.contract_hash,
         actor_id=contract.actor_id,
@@ -156,7 +173,7 @@ def _control_session(contract=None, *, warrant=None):
             for rule in contract.action_rules
         ),
     )
-    return contract, session
+    return contract, grant, session
 
 
 def _control_action(
@@ -247,7 +264,7 @@ def test_advise_mode_surfaces_vnext_recommendation_without_steering() -> None:
 
 
 def test_advise_mode_ignores_control_artifacts_for_steering() -> None:
-    contract, session = _control_session()
+    contract, grant, session = _control_session()
     action = _control_action()
     candidate = _candidate(
         "route:flow",
@@ -262,6 +279,7 @@ def test_advise_mode_ignores_control_artifacts_for_steering() -> None:
         (candidate,),
         bindings=_bindings(),
         control_contract=contract,
+        control_grant=grant,
         control_session=session,
         control_action=action,
         now=120.0,
@@ -290,7 +308,7 @@ def test_bounded_control_without_contract_session_or_action_fails_closed() -> No
 
 
 def test_bounded_control_licenses_exact_vnext_selected_action() -> None:
-    contract, session = _control_session()
+    contract, grant, session = _control_session()
     action = _control_action()
     flow = _candidate(
         "route:flow",
@@ -307,6 +325,7 @@ def test_bounded_control_licenses_exact_vnext_selected_action() -> None:
         (flow, sage),
         bindings=_bindings(),
         control_contract=contract,
+        control_grant=grant,
         control_session=session,
         control_action=action,
         now=120.0,
@@ -327,7 +346,7 @@ def test_bounded_control_licenses_exact_vnext_selected_action() -> None:
 
 
 def test_bounded_control_requires_selected_route_actor_to_match_control_actor() -> None:
-    contract, session = _control_session()
+    contract, grant, session = _control_session()
     action = _control_action()
     # vNext selects Sage, but the bounded control session belongs to node:flow.
     sage = _candidate("route:sage", "node:sage", base_cost=0.0)
@@ -345,6 +364,7 @@ def test_bounded_control_requires_selected_route_actor_to_match_control_actor() 
         (sage, flow),
         bindings=_bindings(),
         control_contract=contract,
+        control_grant=grant,
         control_session=session,
         control_action=action,
         now=120.0,
@@ -360,7 +380,7 @@ def test_bounded_control_requires_selected_route_actor_to_match_control_actor() 
 
 
 def test_bounded_control_requires_selected_route_operation_and_target_match() -> None:
-    contract, session = _control_session()
+    contract, grant, session = _control_session()
     action = _control_action()
     selected = _candidate(
         "route:flow",
@@ -378,6 +398,7 @@ def test_bounded_control_requires_selected_route_operation_and_target_match() ->
         (selected,),
         bindings=_bindings(),
         control_contract=contract,
+        control_grant=grant,
         control_session=session,
         control_action=action,
         now=120.0,
@@ -390,7 +411,7 @@ def test_bounded_control_requires_selected_route_operation_and_target_match() ->
 
 
 def test_bounded_control_requires_relational_route_to_use_control_session_warrant() -> None:
-    contract, session = _control_session()
+    contract, grant, session = _control_session()
     action = _control_action()
     selected = _candidate(
         "route:flow",
@@ -406,6 +427,7 @@ def test_bounded_control_requires_relational_route_to_use_control_session_warran
         (selected,),
         bindings=_bindings(),
         control_contract=contract,
+        control_grant=grant,
         control_session=session,
         control_action=action,
         now=120.0,
@@ -418,7 +440,7 @@ def test_bounded_control_requires_relational_route_to_use_control_session_warran
 
 
 def test_control_license_refusal_collapses_to_shadow_without_legacy_fallback() -> None:
-    contract, session = _control_session()
+    contract, grant, session = _control_session()
     action = _control_action(compute=101.0)
     selected = _candidate(
         "route:flow",
@@ -434,6 +456,7 @@ def test_control_license_refusal_collapses_to_shadow_without_legacy_fallback() -
         (selected,),
         bindings=_bindings(),
         control_contract=contract,
+        control_grant=grant,
         control_session=session,
         control_action=action,
         now=120.0,
@@ -451,7 +474,7 @@ def test_control_license_refusal_collapses_to_shadow_without_legacy_fallback() -
 
 
 def test_no_admissible_vnext_route_is_terminal_in_bounded_control() -> None:
-    contract, session = _control_session()
+    contract, grant, session = _control_session()
     action = _control_action()
     denied = Warrant.issue(
         issuer="human:mikey",
@@ -474,6 +497,7 @@ def test_no_admissible_vnext_route_is_terminal_in_bounded_control() -> None:
         (candidate,),
         bindings=_bindings(),
         control_contract=contract,
+        control_grant=grant,
         control_session=session,
         control_action=action,
         now=120.0,
@@ -486,7 +510,7 @@ def test_no_admissible_vnext_route_is_terminal_in_bounded_control() -> None:
 
 
 def test_operator_review_holds_bounded_control_without_consuming_warrant() -> None:
-    contract, session = _control_session()
+    contract, grant, session = _control_session()
     action = _control_action()
     candidate = _candidate(
         "route:flow",
@@ -502,6 +526,7 @@ def test_operator_review_holds_bounded_control_without_consuming_warrant() -> No
         bindings=_bindings(),
         runtime_control_state=RuntimeControlState(review_required=True),
         control_contract=contract,
+        control_grant=grant,
         control_session=session,
         control_action=action,
         now=120.0,
@@ -516,7 +541,7 @@ def test_operator_review_holds_bounded_control_without_consuming_warrant() -> No
 
 
 def test_recovery_required_holds_bounded_control() -> None:
-    contract, session = _control_session()
+    contract, grant, session = _control_session()
     candidate = _candidate(
         "route:flow",
         "node:flow",
@@ -531,6 +556,7 @@ def test_recovery_required_holds_bounded_control() -> None:
         bindings=_bindings(),
         runtime_control_state=RuntimeControlState(recovery_required=True),
         control_contract=contract,
+        control_grant=grant,
         control_session=session,
         control_action=_control_action(),
         now=120.0,
@@ -541,7 +567,7 @@ def test_recovery_required_holds_bounded_control() -> None:
 
 
 def test_quarantine_overrides_routing_and_collapses_active_bounded_control() -> None:
-    contract, session = _control_session()
+    contract, grant, session = _control_session()
 
     result = orchestrate_runtime(
         _bundle(),
@@ -551,6 +577,7 @@ def test_quarantine_overrides_routing_and_collapses_active_bounded_control() -> 
         bindings=_bindings(),
         runtime_control_state=RuntimeControlState(quarantined=True),
         control_contract=contract,
+        control_grant=grant,
         control_session=session,
         control_action=_control_action(),
         now=120.0,
@@ -603,7 +630,7 @@ def test_quarantine_blocks_shadow_mode_without_promoting_or_collapsing_anything(
 
 
 def test_bounded_control_does_not_license_action_if_relational_router_errors() -> None:
-    contract, session = _control_session()
+    contract, grant, session = _control_session()
     action = _control_action()
     duplicate_a = _candidate(
         "route:duplicate",
@@ -624,6 +651,7 @@ def test_bounded_control_does_not_license_action_if_relational_router_errors() -
         (duplicate_a, duplicate_b),
         bindings=_bindings(),
         control_contract=contract,
+        control_grant=grant,
         control_session=session,
         control_action=action,
         now=120.0,
@@ -637,7 +665,7 @@ def test_bounded_control_does_not_license_action_if_relational_router_errors() -
 
 
 def test_orchestrator_never_creates_authority_or_constitution_changes() -> None:
-    contract, session = _control_session()
+    contract, grant, session = _control_session()
     result = orchestrate_runtime(
         _bundle(),
         _bounded_state(),
@@ -651,6 +679,7 @@ def test_orchestrator_never_creates_authority_or_constitution_changes() -> None:
         ),
         bindings=_bindings(),
         control_contract=contract,
+        control_grant=grant,
         control_session=session,
         control_action=_control_action(),
         now=120.0,
@@ -675,7 +704,7 @@ def test_to_record_distinguishes_advice_from_licensed_steering() -> None:
         now=120.0,
     ).to_record()
 
-    contract, session = _control_session()
+    contract, grant, session = _control_session()
     bounded = orchestrate_runtime(
         _bundle(),
         _bounded_state(),
@@ -689,6 +718,7 @@ def test_to_record_distinguishes_advice_from_licensed_steering() -> None:
         ),
         bindings=_bindings(),
         control_contract=contract,
+        control_grant=grant,
         control_session=session,
         control_action=_control_action(),
         now=120.0,
