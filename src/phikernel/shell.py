@@ -8,10 +8,13 @@ persisted constitutional state through:
 
     phik constitutional status
     phik constitutional route <prompt>
+    phik constitutional action ...
 
 The legacy `phik route` and `phik ask` commands remain unchanged and
 authoritative. Constitutional commands consume validated persisted authority;
-they do not manufacture ADVISE or BOUNDED_CONTROL from CLI flags.
+they do not manufacture ADVISE or BOUNDED_CONTROL from CLI flags. The action
+surface can consume only an exact persisted BOUNDED_CONTROL lease and an
+allowlisted normalized runtime-adapter target.
 """
 
 from dataclasses import dataclass
@@ -24,6 +27,12 @@ import sys
 import time
 
 from phikernel.anc_bridge import guard_output_commit, guard_service_request
+from phikernel.constitutional_action import (
+    ConstitutionalActionError,
+    ConstitutionalActionJournal,
+    execute_constitutional_action,
+    parse_resource_spends,
+)
 from phikernel.control_state import RuntimeControlState, apply_operator_action, load_runtime_control_state
 from phikernel.constitutional_shell import run_constitutional_shell
 from phikernel.constitutional_store import (
@@ -358,11 +367,23 @@ class PhiKernelShell:
                 "stopped": state.control_session.stopped,
             }
 
+        try:
+            action_journal_count = len(
+                ConstitutionalActionJournal(
+                    self.paths.runtime_root
+                ).history()
+            )
+        except ConstitutionalActionError as exc:
+            raise ShellError(
+                f"Constitutional action journal failed validation: {exc}"
+            ) from exc
+
         return {
             "constitutional_version": "0.2.0",
             "persisted_state_present": persisted,
             "snapshot_hash": snapshot_hash,
             "history_count": history_count,
+            "action_journal_count": action_journal_count,
             "mode": state.promotion_state.mode,
             "revision": state.promotion_state.revision,
             "last_receipt_id": state.promotion_state.last_receipt_id,
@@ -415,6 +436,75 @@ class PhiKernelShell:
             record["automatic_collapse_persisted"] = True
             record["persisted_snapshot_hash_after"] = snapshot.snapshot_hash
 
+        return record
+
+    def cmd_constitutional_action(self, args: argparse.Namespace) -> dict[str, Any]:
+        """Consume one exact persisted bounded-control action lease."""
+        self._ensure_runtime_services()
+        state, persisted, _, _ = self._load_constitutional_state()
+        if not persisted:
+            raise ShellError(
+                "Constitutional action requires persisted BOUNDED_CONTROL state"
+            )
+
+        if args.json_file and args.json_text:
+            raise ShellError(
+                "Use either --json-file or --json-text for constitutional action, not both"
+            )
+        if args.json_file:
+            path = Path(args.json_file)
+            if not path.exists():
+                raise ShellError(f"JSON file not found: {path}")
+            with path.open("r", encoding="utf-8") as fh:
+                payload = json.load(fh)
+        elif args.json_text:
+            payload = json.loads(args.json_text)
+        else:
+            raise ShellError(
+                "constitutional action requires --json-file or --json-text"
+            )
+        if not isinstance(payload, dict):
+            raise ShellError(
+                "constitutional action payload must decode to a JSON object"
+            )
+
+        try:
+            spends = parse_resource_spends(tuple(args.resources or ()))
+            target = f"runtime/adapter/{args.adapter}"
+            prompt = payload.get("prompt", "")
+            bundle = self._build_think_bundle(
+                prompt if isinstance(prompt, str) else ""
+            )
+            result = execute_constitutional_action(
+                think_bundle=bundle,
+                state=state,
+                state_store=self.constitutional_store,
+                runtime_control_state=load_runtime_control_state(
+                    self.paths.runtime_root
+                ),
+                target=target,
+                payload=payload,
+                resource_spends=spends,
+                clock_ticks=args.clock_ticks,
+                evidence_refs=tuple(args.evidence or ()),
+                rollback_ref=args.rollback_ref,
+                runtime_bridge=self.runtime_bridge,
+                legacy_router=self.router,
+                action_journal=ConstitutionalActionJournal(
+                    self.paths.runtime_root
+                ),
+            )
+        except ConstitutionalActionError as exc:
+            raise ShellError(
+                f"Constitutional action failed: {exc}"
+            ) from exc
+
+        record = result.to_record()
+        record["action_journal_count"] = len(
+            ConstitutionalActionJournal(
+                self.paths.runtime_root
+            ).history()
+        )
         return record
 
     def _load_constitutional_state(
@@ -682,6 +772,58 @@ class PhiKernelShell:
         )
         constitutional_route.set_defaults(handler=self.cmd_constitutional_route)
 
+        constitutional_action = constitutional_sub.add_parser(
+            "action",
+            help="Execute one exact persisted bounded-control runtime-adapter action",
+        )
+        constitutional_action.add_argument(
+            "--adapter",
+            required=True,
+            choices=["legacy", "tiekat_v50"],
+            help="Exact bounded runtime-adapter target",
+        )
+        action_payload = constitutional_action.add_mutually_exclusive_group(
+            required=True
+        )
+        action_payload.add_argument(
+            "--json-file",
+            default=None,
+            help="JSON object payload for the bounded runtime adapter",
+        )
+        action_payload.add_argument(
+            "--json-text",
+            default=None,
+            help="Inline JSON object payload for the bounded runtime adapter",
+        )
+        constitutional_action.add_argument(
+            "--resource",
+            dest="resources",
+            action="append",
+            default=[],
+            metavar="KIND=AMOUNT",
+            help="Requested bounded resource spend (repeatable)",
+        )
+        constitutional_action.add_argument(
+            "--clock-ticks",
+            type=float,
+            required=True,
+            help="Requested bounded computational clock ticks",
+        )
+        constitutional_action.add_argument(
+            "--evidence",
+            action="append",
+            default=[],
+            help="Evidence reference supplied to the control contract (repeatable)",
+        )
+        constitutional_action.add_argument(
+            "--rollback-ref",
+            required=True,
+            help="Declared rollback reference for this exact action",
+        )
+        constitutional_action.set_defaults(
+            handler=self.cmd_constitutional_action
+        )
+
         control = subparsers.add_parser("control", help="Apply operator runtime-control actions")
         control.add_argument(
             "action",
@@ -725,6 +867,8 @@ class PhiKernelShell:
             return self._render_constitutional_status(result)
         if command == "constitutional" and args.constitutional_command == "route":
             return self._render_constitutional_route(result)
+        if command == "constitutional" and args.constitutional_command == "action":
+            return self._render_constitutional_action(result)
         return json.dumps(result, indent=2, sort_keys=True)
 
     def _render_status(self, result: dict[str, Any]) -> str:
@@ -873,6 +1017,7 @@ class PhiKernelShell:
             f"Last Receipt: {result.get('last_receipt_id')}",
             f"Human Seal: {result.get('authorized_by_seal_id')}",
             f"History Entries: {result.get('history_count')}",
+            f"Action Journal Entries: {result.get('action_journal_count')}",
         ]
         if control:
             lines.extend(
@@ -885,6 +1030,25 @@ class PhiKernelShell:
                     f"Pending Action: {control.get('pending_action_id')}",
                 ]
             )
+        return "\n".join(lines)
+
+    def _render_constitutional_action(self, result: dict[str, Any]) -> str:
+        runtime = result.get("runtime") or {}
+        executor = result.get("executor_result") or {}
+        outcome = result.get("outcome_receipt") or {}
+        action = result.get("action") or {}
+        lines = [
+            ":: PHIKERNEL CONSTITUTIONAL ACTION ::",
+            f"Transaction: {result.get('transaction_id')}",
+            f"Action: {action.get('operation')}:{action.get('target')}",
+            f"Runtime Disposition: {runtime.get('disposition')}",
+            f"Executed: {result.get('executed')}",
+            f"Success: {result.get('success')}",
+            f"Resulting Mode: {result.get('resulting_mode')}",
+            f"Result Ref: {executor.get('result_ref')}",
+            f"Outcome: {outcome.get('reason')}",
+            f"Action Journal Entries: {result.get('action_journal_count')}",
+        ]
         return "\n".join(lines)
 
     def _render_constitutional_route(self, result: dict[str, Any]) -> str:

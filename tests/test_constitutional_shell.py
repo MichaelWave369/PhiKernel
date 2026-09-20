@@ -188,7 +188,7 @@ def _persist_bounded(shell: PhiKernelShell):
             ControlActionRule(
                 rule_id="rule:python-shell",
                 operation="execute",
-                target="tool/python",
+                target="runtime/adapter/legacy",
                 max_count=3,
             ),
         ),
@@ -766,3 +766,231 @@ def test_corrupt_persisted_constitutional_state_fails_shell_closed(
     captured = capsys.readouterr()
 
     assert "Constitutional state failed validation" in captured.err
+
+
+def test_constitutional_action_executes_exact_persisted_bounded_adapter(
+    initialized_shell,
+    runtime_paths: RuntimePaths,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shell = _ready_shell(initialized_shell, runtime_paths)
+    _persist_bounded(shell)
+
+    exit_code = shell.run(
+        [
+            "--runtime-root",
+            str(runtime_paths.runtime_root),
+            "--json",
+            "constitutional",
+            "action",
+            "--adapter",
+            "legacy",
+            "--json-text",
+            '{"prompt":"bounded normal"}',
+            "--resource",
+            "compute_ms=10",
+            "--clock-ticks",
+            "2",
+            "--evidence",
+            "evidence:shell-approved",
+            "--rollback-ref",
+            "rollback:no-side-effect",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    loaded = shell.constitutional_store.load()
+
+    assert exit_code == 0
+    assert payload["executed"] is True
+    assert payload["success"] is True
+    assert payload["runtime"]["disposition"] == "BOUNDED_LICENSED"
+    assert payload["action"]["operation"] == "execute"
+    assert payload["action"]["target"] == "runtime/adapter/legacy"
+    assert payload["executor_result"]["adapter"] == "legacy"
+    assert payload["outcome_receipt"]["success"] is True
+    assert payload["resulting_mode"] == BOUNDED_CONTROL
+    assert payload["action_journal_count"] == 3
+
+    assert loaded.promotion_state.mode == BOUNDED_CONTROL
+    assert loaded.control_session.actions_used == 1
+    assert loaded.control_session.clock_ticks_used == pytest.approx(2.0)
+    assert loaded.control_session.warrant.remaining("compute_ms") == pytest.approx(90.0)
+    assert loaded.control_session.pending_action_id is None
+
+
+def test_constitutional_status_reflects_completed_action_accounting(
+    initialized_shell,
+    runtime_paths: RuntimePaths,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shell = _ready_shell(initialized_shell, runtime_paths)
+    _persist_bounded(shell)
+
+    shell.run(
+        [
+            "--runtime-root",
+            str(runtime_paths.runtime_root),
+            "--json",
+            "constitutional",
+            "action",
+            "--adapter",
+            "legacy",
+            "--json-text",
+            '{"prompt":"bounded normal"}',
+            "--resource",
+            "compute_ms=10",
+            "--clock-ticks",
+            "2",
+            "--evidence",
+            "evidence:shell-approved",
+            "--rollback-ref",
+            "rollback:no-side-effect",
+        ]
+    )
+    _ = capsys.readouterr()
+
+    exit_code = shell.run(
+        [
+            "--runtime-root",
+            str(runtime_paths.runtime_root),
+            "--json",
+            "constitutional",
+            "status",
+        ]
+    )
+    status = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert status["mode"] == BOUNDED_CONTROL
+    assert status["control"]["actions_used"] == 1
+    assert status["control"]["clock_ticks_used"] == pytest.approx(2.0)
+    assert status["control"]["pending_action_id"] is None
+    assert status["action_journal_count"] == 3
+
+
+def test_constitutional_action_requires_persisted_bounded_state(
+    initialized_shell,
+    runtime_paths: RuntimePaths,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shell = _ready_shell(initialized_shell, runtime_paths)
+
+    with pytest.raises(SystemExit):
+        shell.run(
+            [
+                "--runtime-root",
+                str(runtime_paths.runtime_root),
+                "constitutional",
+                "action",
+                "--adapter",
+                "legacy",
+                "--json-text",
+                '{"prompt":"normal"}',
+                "--clock-ticks",
+                "1",
+                "--rollback-ref",
+                "rollback:no-side-effect",
+            ]
+        )
+    captured = capsys.readouterr()
+
+    assert "requires persisted BOUNDED_CONTROL" in captured.err
+
+
+def test_constitutional_action_in_advise_mode_fails_without_execution(
+    initialized_shell,
+    runtime_paths: RuntimePaths,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shell = _ready_shell(initialized_shell, runtime_paths)
+    _persist_advise(shell)
+
+    with pytest.raises(SystemExit):
+        shell.run(
+            [
+                "--runtime-root",
+                str(runtime_paths.runtime_root),
+                "constitutional",
+                "action",
+                "--adapter",
+                "legacy",
+                "--json-text",
+                '{"prompt":"normal"}',
+                "--clock-ticks",
+                "1",
+                "--rollback-ref",
+                "rollback:no-side-effect",
+            ]
+        )
+    captured = capsys.readouterr()
+    loaded = shell.constitutional_store.load()
+
+    assert "requires persisted BOUNDED_CONTROL" in captured.err
+    assert loaded.promotion_state.mode == ADVISE
+    assert not (runtime_paths.runtime_root / "constitutional" / "actions.jsonl").exists()
+
+
+def test_constitutional_action_resource_overdraft_refuses_and_collapses(
+    initialized_shell,
+    runtime_paths: RuntimePaths,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shell = _ready_shell(initialized_shell, runtime_paths)
+    _persist_bounded(shell)
+
+    exit_code = shell.run(
+        [
+            "--runtime-root",
+            str(runtime_paths.runtime_root),
+            "--json",
+            "constitutional",
+            "action",
+            "--adapter",
+            "legacy",
+            "--json-text",
+            '{"prompt":"normal"}',
+            "--resource",
+            "compute_ms=101",
+            "--clock-ticks",
+            "1",
+            "--evidence",
+            "evidence:shell-approved",
+            "--rollback-ref",
+            "rollback:no-side-effect",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    loaded = shell.constitutional_store.load()
+
+    assert exit_code == 0
+    assert payload["executed"] is False
+    assert payload["success"] is False
+    assert payload["resulting_mode"] == SHADOW
+    assert payload["runtime"]["disposition"] == "BOUNDED_REFUSED"
+    assert loaded.promotion_state.mode == SHADOW
+    assert payload["action_journal_count"] == 1
+
+
+def test_constitutional_action_adapter_is_allowlisted_by_parser(
+    initialized_shell,
+    runtime_paths: RuntimePaths,
+) -> None:
+    shell = _ready_shell(initialized_shell, runtime_paths)
+    _persist_bounded(shell)
+
+    parser = shell._build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "constitutional",
+                "action",
+                "--adapter",
+                "python",
+                "--json-text",
+                '{"prompt":"normal"}',
+                "--clock-ticks",
+                "1",
+                "--rollback-ref",
+                "rollback:no-side-effect",
+            ]
+        )
