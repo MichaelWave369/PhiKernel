@@ -72,7 +72,13 @@ CONSTITUTIONAL_ACTION_VERSION = "0.2.0"
 LICENSED_EVENT = "LICENSED"
 REFUSED_EVENT = "REFUSED"
 OUTCOME_EVENT = "OUTCOME"
-VALID_EVENT_TYPES = {LICENSED_EVENT, REFUSED_EVENT, OUTCOME_EVENT}
+COMMITTED_EVENT = "COMMITTED"
+VALID_EVENT_TYPES = {
+    LICENSED_EVENT,
+    REFUSED_EVENT,
+    OUTCOME_EVENT,
+    COMMITTED_EVENT,
+}
 
 SUPPORTED_EXECUTOR_TARGETS = {
     "runtime/adapter/legacy": "legacy",
@@ -610,6 +616,23 @@ def execute_constitutional_action(
         written_at=executor_result.executed_at,
         now=executor_result.executed_at,
     )
+    committed_event = journal.append(
+        transaction_id=transaction_id,
+        event_type=COMMITTED_EVENT,
+        payload={
+            "action_id": action.action_id,
+            "outcome_receipt_id": outcome_receipt.receipt_id,
+            "final_snapshot_hash": final_snapshot.snapshot_hash,
+            "resulting_mode": final_state.promotion_state.mode,
+            "resulting_session_id": (
+                None
+                if final_state.control_session is None
+                else final_state.control_session.session_id
+            ),
+        },
+        recorded_at=executor_result.executed_at,
+    )
+    event_hashes.append(committed_event.event_hash)
 
     return ConstitutionalActionTransactionResult(
         transaction_id=transaction_id,
