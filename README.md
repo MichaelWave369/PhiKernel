@@ -460,6 +460,19 @@ phik route "How should I begin?"
 phik ask "How should I begin?"
 ```
 
+Run the constitutional router explicitly in SHADOW mode:
+
+```bash
+phik constitutional route "How should I begin?"
+phik --json constitutional route "I need momentum to create and start this draft"
+```
+
+This command keeps the legacy coach result authoritative while Crane Fly vNext
+evaluates the same request through the constitutional routing path and emits a
+comparison receipt. The shell-generated candidate warrants are scoped only to
+`route-evaluate:coach/<Coach>`; they do not authorize tool execution or
+bounded steering.
+
 Run adapter-backed analysis:
 
 ```bash
@@ -479,11 +492,24 @@ phik control release_quarantine --note "operator review complete"
 
 ## CLI integration note
 
-The shell currently routes `phik route` and `phik ask` through the deterministic legacy `CoachRouter`.
+The shell still routes `phik route` and `phik ask` through the deterministic
+legacy `CoachRouter`.
 
-The v0.2 constitutional runtime modules are available as Python APIs and are covered by the repository test suite, but they are not yet the default CLI routing path.
+The v0.2 constitutional runtime is now exposed explicitly through:
 
-This prevents documentation from confusing:
+```bash
+phik constitutional route "<prompt>"
+```
+
+That shell path is intentionally **SHADOW-only**. It runs the constitutional
+orchestrator and Crane Fly vNext beside the legacy router, but does not
+manufacture ADVISE or BOUNDED_CONTROL promotion state from command-line flags.
+
+ADVISE and BOUNDED_CONTROL still require persisted/verifiable promotion,
+human-authorization, grant, and session lineage before they can become shell
+runtime modes.
+
+This keeps the repository from confusing:
 
 ```text
 IMPLEMENTED
