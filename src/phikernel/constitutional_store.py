@@ -149,13 +149,40 @@ class ConstitutionalStateStore:
         *,
         now: float | None = None,
     ) -> ConstitutionalSnapshot:
+        return self._load_snapshot_checked(
+            now=now,
+            check_expiry=True,
+        )
+
+    def load_snapshot_for_recovery(self) -> ConstitutionalSnapshot:
+        """Structurally validate current state without reviving expired authority.
+
+        This surface exists only so recovery can reduce privilege or finish
+        already-journaled outcomes after a control lease expires. Callers must
+        not use it as authorization for new work.
+        """
+        return self._load_snapshot_checked(
+            now=None,
+            check_expiry=False,
+        )
+
+    def _load_snapshot_checked(
+        self,
+        *,
+        now: float | None,
+        check_expiry: bool,
+    ) -> ConstitutionalSnapshot:
         if not self.state_file.exists():
             raise ConstitutionalPersistenceError(
                 "no constitutional state snapshot exists"
             )
 
         record = _read_json_object(self.state_file)
-        snapshot = _snapshot_from_record(record, now=now)
+        snapshot = _snapshot_from_record(
+            record,
+            now=now,
+            check_expiry=check_expiry,
+        )
 
         history_records = self._read_history_records()
         if not history_records:
@@ -164,7 +191,11 @@ class ConstitutionalStateStore:
             )
 
         last = history_records[-1]
-        history_snapshot = _snapshot_from_record(last, now=now)
+        history_snapshot = _snapshot_from_record(
+            last,
+            now=now,
+            check_expiry=check_expiry,
+        )
         if history_snapshot.snapshot_hash != snapshot.snapshot_hash:
             raise ConstitutionalPersistenceIntegrityError(
                 "canonical snapshot does not match latest history entry"
