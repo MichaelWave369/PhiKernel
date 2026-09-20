@@ -303,6 +303,13 @@ class ConstitutionalAttestationStore:
             )
 
         history = self.history()
+        if history:
+            existing = self.verify()
+            if not existing.valid:
+                raise ConstitutionalAttestationSigningError(
+                    "refusing to extend invalid constitutional "
+                    f"attestation chain: {existing.reason}"
+                )
         previous_hash = (
             None
             if not history
