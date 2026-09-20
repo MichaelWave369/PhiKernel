@@ -1,191 +1,416 @@
-# PhiKernel v0.1.0
+# PhiKernel v0.2.0
 
-**PhiKernel** is a local-first, Linux-hosted runtime for anchored identity, sealed continuity, runtime pulse, coherence scoring, and safe shell-based orchestration.
+**PhiKernel** is a local-first constitutional runtime for governed computation, continuity, trust-aware orchestration, and bounded machine authority.
 
-It is designed as a **sovereign substrate** for trusted local operation: identity is rooted in cryptographic verification, memory is sealed into encrypted capsules, runtime health is maintained by a monotonic heartbeat, and system drift is observed through a TIEKAT-aligned coherence model centered on **C\* = φ/2**.
+It runs **on top of Linux**. Linux remains the host operating-system substrate for hardware, filesystems, processes, drivers, and scheduling. PhiKernel adds a higher-order runtime that decides how computational participants may act, what evidence may move forward, what authority is currently valid, how failures affect future routing, and when human authorization is required.
 
-PhiKernel is **not** a replacement for Linux.  
-It runs **on top of Linux** as a higher-order local runtime.
+PhiKernel began as an anchored local runtime for identity, encrypted continuity, heartbeat scheduling, field telemetry, and deterministic routing. v0.2 keeps that substrate and adds an explicit constitutional execution model.
 
----
-
-## What PhiKernel is
-
-PhiKernel provides a structured local runtime with six core layers:
-
-- **Anchor** — root identity and trust
-- **Capsule** — encrypted continuity snapshots
-- **Heart** — monotonic runtime scheduler and maintenance loop
-- **Coherence** — field telemetry and drift scoring
-- **Shell** — operable command-line interface
-- **Router** — first deterministic coach/orchestration layer
-
-The system is designed to move from disposable sessions toward persistent, continuity-aware operation.
-
----
-
-## Design principles
-
-### Linux is the host substrate
-Linux remains responsible for hardware access, filesystems, drivers, process boundaries, and operating-system scheduling.
-
-### PhiKernel is the continuity substrate
-PhiKernel is responsible for identity anchoring, sealed state, runtime observation, and shell-level orchestration.
-
-### Security is literal
-PhiKernel uses standard cryptographic primitives for trust and storage. Symbolic models may inform structure and naming, but they do not replace cryptography.
-
-### Continuity is first-class
-A session is not the unit of truth. The anchored runtime and its sealed capsules are the continuity surface.
-
-### TIEKAT is used as a scoring model
-PhiKernel uses a TIEKAT-aligned attractor model centered on **C\* = φ/2** as a runtime scoring and drift-observation layer. This is used for telemetry and correction logic, not as a claim of closed physical law.
-
----
-
-## Core braid
-
-### 1. Anchor
-The Anchor is the root of trust for the local runtime.
-
-It provides:
-- Ed25519 identity
-- Argon2id-protected private-key unlock
-- signed manifest verification
-- stable sovereign identity metadata
-
-### 2. Capsule
-The Capsule layer provides encrypted continuity storage.
-
-It provides:
-- AES-GCM sealed snapshots
-- per-capsule derived encryption keys
-- manifest-linked continuity
-- verified restore / rehydrate flow
-
-### 3. Heart
-The Heart is the runtime pulse.
-
-It provides:
-- monotonic scheduler
-- recurring maintenance jobs
-- anchor verification checks
-- automatic checkpoint sealing
-- runtime status persistence
-
-### 4. Coherence
-The Coherence layer gives the runtime a field model.
-
-It provides:
-- `C_current`
-- `distance_to_C_star`
-- `phi_flow`
-- `lambda_node`
-- `sigma_feedback`
-- `fragmentation_score`
-- action recommendations such as `observe`, `checkpoint`, `restore`, or `alert`
-
-### 5. Shell
-The Shell is the human-facing terminal surface.
-
-It provides:
-- status inspection
-- field inspection
-- anchor inspection
-- capsule seal/list/restore
-- context bundle generation through `think`
-
-### 6. Router
-The Router is the first orchestration layer on top of the shell.
-
-It provides:
-- deterministic coach routing
-- safety-aware selection
-- Titan / Flow / Sage responses
-- routing that respects anchor trust, pulse state, and field stability
+> **Core rule:** capability is not authority.
 
 ---
 
 ## Project status
 
-**Version:** `0.1.0`  
-**Status:** open alpha / Phi Commons substrate milestone
+**Version:** `0.2.0`  
+**Status:** open alpha / constitutional runtime milestone  
+**License:** MIT for project-owned code and documentation unless otherwise noted
 
-PhiKernel v0.1.0 is the first full core braid milestone:
-- identity
-- continuity
-- pulse
-- vision
-- voice
-- first safe orchestration
+v0.2 establishes a tested constitutional runtime core for:
 
-This version is intended as a **local-first, inspectable, testable foundation** for future PhiOS runtime and sovereign-computing work.
+- governed state transitions
+- temporary scoped authority
+- provenance and evidence carriage
+- contradiction handling
+- failure and success routing memory
+- stratified mutability
+- workload-local computational time
+- temporary coalition identities
+- governed premise state
+- relational routing
+- shadow evaluation
+- evidence-before-promotion
+- human-gated bounded control
+- mode-aware constitutional orchestration
+
+The current CLI still exposes the original substrate and legacy coach-routing path. The v0.2 constitutional layers are implemented as Python runtime APIs and are not yet fully wired into `phik route` / `phik ask`.
+
+That distinction is intentional: implementation, verification, and live authorization are separate milestones.
+
+---
+
+## Constitutional model
+
+PhiKernel v0.2 treats a proposed state transition as the central governed object.
+
+```text
+CURRENT STATE
+     |
+     v
+participant proposes change
+     |
+     v
+constitutional checks
+     |
+     +--> LICENSE
+     +--> DEGRADE
+     +--> QUARANTINE
+     +--> REFUSE
+     |
+     v
+receipted next state
+```
+
+The runtime is designed around several non-negotiable distinctions:
+
+```text
+CAPABILITY != AUTHORITY
+SUCCESS != AUTHORITY
+POPULARITY != AUTHORITY
+ROUTING != AUTHORIZATION
+OUTPUT != CARRIAGE
+ELEGANCE != EVIDENCE
+PREMISE != FACT
+TIME != AUTHORITY
+TICK RATE != AUTHORITY
+READY FOR REVIEW != AUTHORIZED
+ADVISE != STEERING AUTHORITY
+BOUNDED CONTROL != GENERAL CONTROL
+FAILURE MAY ALTER ROUTING
+FAILURE MAY NOT ALTER LAW
+TEMPORARY AUTHORITY EXPIRES
+HUMAN SILENCE != CONSENT
+HUMAN CONSTITUTIONAL AUTHORITY IS FINAL
+```
+
+---
+
+## Runtime modes
+
+Crane Fly vNext progresses through explicit runtime modes.
+
+### SHADOW
+
+- legacy `CoachRouter` remains authoritative
+- relational routing evaluates in parallel
+- disagreement and hard-block discoveries are receipted
+- vNext has zero steering authority
+
+### ADVISE
+
+- legacy routing remains authoritative
+- vNext may surface a recommendation
+- recommendation has zero steering authority
+- promotion from SHADOW requires Witness Bench evidence plus explicit human authorization
+
+### BOUNDED_CONTROL
+
+- steering is permitted only through a finite human-authorized control lease
+- the lease is bound to an exact actor, contract, warrant, scope, resource budget, action count, clock budget, and lifetime
+- each action still requires a governed Transition license
+- terminal refusal does not silently fall back to legacy execution
+- failure, veto, quarantine, or seal may collapse privilege back toward SHADOW
+
+```text
+SHADOW
+  |
+  | evidence + human authorization
+  v
+ADVISE
+  |
+  | control witness evidence + human authorization
+  v
+BOUNDED_CONTROL
+  |
+  | failure / veto / containment
+  v
+SHADOW
+```
+
+Privilege may collapse automatically. Privilege may not expand automatically.
+
+---
+
+## Architecture
+
+### Original local substrate
+
+The original v0.1 braid remains part of PhiKernel.
+
+**Anchor**  
+Cryptographic local identity and trust root.
+
+- Ed25519 signatures
+- Argon2id passphrase protection
+- signed manifest verification
+- stable local identity metadata
+
+**Capsule**  
+Encrypted continuity snapshots.
+
+- AES-GCM sealed state
+- manifest-linked continuity
+- verified restore / rehydrate flow
+- guarded memory writes
+
+**Heart**  
+Monotonic runtime pulse.
+
+- recurring maintenance work
+- anchor checks
+- checkpoint scheduling
+- runtime status persistence
+
+**Coherence / TIEKAT telemetry**  
+Runtime observation and drift scoring.
+
+- coherence measurements
+- field telemetry
+- action recommendations
+- TIEKAT is used as a runtime scoring model, not as a claim of closed physical law
+
+**Shell**  
+Human-facing local CLI.
+
+**Legacy Router**  
+Deterministic Titan / Flow / Sage routing retained as the currently authoritative shell routing path.
+
+### Constitutional runtime layers
+
+**Warrants + governed transitions**  
+`warrant.py`, `transition.py`
+
+- bearer-bound, non-transferable temporary authority
+- scoped operation/target permissions
+- finite resource budgets
+- expiry and revocation
+- atomic resource preflight
+- immutable successor warrants and receipts
+
+**Carriage + contradiction**  
+`carriage.py`, `contradiction.py`
+
+- output does not automatically become shared evidence
+- provenance and parent lineage checks
+- citation rights
+- quarantine / refusal
+- first-class unresolved contradiction state
+- no automatic truth selection
+
+**Failure scars + saturation**  
+`scar.py`, `saturation.py`
+
+- decaying failure memory
+- success-concentration pressure
+- routing effects without authority effects
+- anti-monopoly probing only when viable alternatives exist
+
+**Stratified mutability**  
+`mutability.py`
+
+- L0 Constitution: runtime may petition, human authority applies
+- L1 Policy: runtime may propose, bounded human grant applies
+- L2 Routing Weather: runtime may write ephemeral decaying routing pressure
+
+**Clock skins**  
+`clockskin.py`
+
+- workload-local computational time
+- wall-rate and explicit-signal modes
+- finite tick leases
+- human time does not advance from waiting
+- cross-skin transfer requires current carriage rights
+
+**Coalition charters**  
+`coalition.py`
+
+- temporary multi-participant capability unions
+- coalition identity is distinct from member identity
+- coalition authority does not transfer to members
+- degradation reduces capability, not constitutional authority
+- disband revokes temporary grants
+
+**Premise objects**  
+`premise.py`
+
+- ACTIVE / CHALLENGED / QUARANTINED / RETIRED
+- verified failures and contradictions may challenge premises
+- one evidence source cannot be replayed for extra governance weight
+- challenged premises can add routing pressure
+- quarantined premises can block dependents
+- premises may propose policy or petition constitution, never apply either
+
+**Relational routing / Crane Fly vNext**  
+`relational_router.py`
+
+Routing is split into two stages:
+
+1. hard admissibility
+2. relational conductance among survivors
+
+Hard gates include warrant validity, capability, resource sufficiency, citation rights, contradiction state, premise state, coalition state, clock state, and explicit human blocks.
+
+Soft routing pressure may include scars, saturation, L2 weather, challenged premises, clock pressure, resource pressure, degraded coalition state, and human preference penalties.
+
+A hard-blocked route receives no conductance score.
+
+**Shadow runtime**  
+`routing_shadow.py`
+
+Runs legacy routing and Crane Fly vNext in parallel and produces comparison receipts such as:
+
+- `AGREE`
+- `DIVERGE`
+- `VNEXT_BLOCKS_LEGACY`
+- `VNEXT_NO_ROUTE`
+- `VNEXT_ERROR`
+- `LEGACY_UNMAPPED`
+
+Shadow steering authority is always `NONE`.
+
+**Witness Bench + promotion gate**  
+`witness_bench.py`
+
+Promotion evidence includes:
+
+- sample count
+- input diversity
+- candidate coverage
+- deterministic replay
+- invariant preservation
+- behavioral reality
+- conflict review
+- vNext error rate
+
+The Bench may conclude `READY_FOR_HUMAN_REVIEW`. It cannot authorize itself.
+
+SHADOW -> ADVISE requires an explicit human seal bound to the exact proposal and witness report.
+
+**Control Witness Contract**  
+`control_witness.py`
+
+ADVISE -> BOUNDED_CONTROL requires a separate, stronger control-witness process.
+
+The safe v0.2 control profile requires:
+
+- exact scopes, with no glob widening
+- finite per-rule and total action counts
+- finite resource budgets
+- finite clock budget
+- finite lifetime
+- required evidence
+- declared rollback path
+- interruptibility
+- human veto
+- post-action receipts
+- terminal failure semantics
+
+Human authorization creates a dedicated finite control warrant. Each action still goes through the normal governed-transition evaluator.
+
+**Constitutional execution orchestrator**  
+`constitutional_runtime.py`
+
+Composes runtime mode, legacy routing, Crane Fly vNext, operator control state, bounded-control grant lineage, control session state, and action licensing.
+
+It enforces:
+
+```text
+SHADOW  -> observe only
+ADVISE  -> recommend only
+BOUNDED_CONTROL -> steer only through exact human-authorized lease
+```
+
+Quarantine and seal override routing mode. Review/recovery state can hold steering without spending the control warrant. Terminal control refusal does not fall back to legacy execution.
+
+The orchestrator licenses actions but does not itself perform external side effects.
+
+---
+
+## Runtime and trust controls
+
+PhiKernel also includes trust and operator-control surfaces:
+
+- `anc_bridge.py` for runtime guard integration
+- `trust_runtime.py` for native trust outcomes
+- `control_state.py` for persistent review, quarantine, seal, and recovery state
+- `tiekat_v50.py` and `tiekat_v69_runtime.py` for runtime telemetry/adapters
+
+Operator control actions exposed by the CLI include:
+
+```text
+approve
+review
+quarantine
+seal
+clear_review
+release_quarantine
+recover_from_seal
+begin_recovery
+refresh
+```
+
+Quarantine and seal are stronger than routing preference. They block execution until explicit recovery flow permits progress.
 
 ---
 
 ## Repository layout
 
 ```text
-phikernel/
-├── pyproject.toml
+PhiKernel/
 ├── README.md
-├── LICENSE\n├── PHI_COMMONS.md\n├── LICENSE_HISTORY.md\n├── THIRD_PARTY_NOTICES.md
-├── src/
-│   └── phikernel/
-│       ├── __init__.py
-│       ├── anchor.py
-│       ├── capsule.py
-│       ├── heart.py
-│       ├── coherence.py
-│       ├── shell.py
-│       └── router.py
+├── LICENSE
+├── PHI_COMMONS.md
+├── LICENSE_HISTORY.md
+├── THIRD_PARTY_NOTICES.md
+├── pyproject.toml
+├── src/phikernel/
+│   ├── anchor.py
+│   ├── capsule.py
+│   ├── heart.py
+│   ├── coherence.py
+│   ├── shell.py
+│   ├── router.py
+│   ├── anc_bridge.py
+│   ├── trust_runtime.py
+│   ├── control_state.py
+│   ├── warrant.py
+│   ├── transition.py
+│   ├── carriage.py
+│   ├── contradiction.py
+│   ├── scar.py
+│   ├── saturation.py
+│   ├── mutability.py
+│   ├── clockskin.py
+│   ├── coalition.py
+│   ├── premise.py
+│   ├── relational_router.py
+│   ├── routing_shadow.py
+│   ├── witness_bench.py
+│   ├── control_witness.py
+│   └── constitutional_runtime.py
 └── tests/
-    ├── test_anchor.py
-    ├── test_capsule.py
-    ├── test_heart.py
-    ├── test_coherence.py
-    ├── test_shell.py
-    ├── test_router.py
-    └── test_shell_route.py
+    └── ...
 ```
 
 ---
 
 ## Requirements
 
-* Python 3.11+
-* Linux recommended for primary local runtime use
+- Python 3.11+
+- Linux recommended for the primary local runtime
 
-Dependencies:
+Runtime dependencies:
 
-* `cryptography`
-* `argon2-cffi`
+- `cryptography`
+- `argon2-cffi`
 
-Dev dependency:
+Development dependency:
 
-* `pytest`
+- `pytest`
 
 ---
 
 ## Installation
-
-Clone the repository, then install in editable mode:
-
-```bash
-pip install -e .[dev]
-```
-
-You should then have access to the CLI:
-
-```bash
-phik --help
-```
-
----
-
-## Development Setup
-
-For local development, use Python 3.11+ in a virtual environment:
 
 ```bash
 python3.11 -m venv .venv
@@ -194,7 +419,7 @@ python -m pip install --upgrade pip
 python -m pip install -e .[dev]
 ```
 
-Then run:
+Then:
 
 ```bash
 python -m pytest
@@ -203,228 +428,172 @@ phik --help
 
 ---
 
-## First Run
+## First run
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .[dev]
-phik init --passphrase "change-me" --sovereign-name "Tal-Aren-Vox" --user-label "Ori"
+phik init \
+  --passphrase "change-me" \
+  --sovereign-name "Tal-Aren-Vox" \
+  --user-label "Ori"
+
 phik anchor show
-phik status
-phik ask "How should I begin?"
-```
-
----
-
-### Pulse once (one-shot runtime cycle)
-
-```bash
-phik init --passphrase "change-me" --sovereign-name "Tal-Aren-Vox" --user-label "Ori"
 phik pulse once
 phik field
-phik ask "How should I begin?"
-```
-
-Checkpoint mode:
-
-```bash
-phik pulse once --checkpoint --passphrase "change-me"
-```
-
-## Primary commands
-
-### Runtime overview
-
-```bash
 phik status
 ```
 
-Shows aggregate substrate state:
-
-* anchor status
-* heart status
-* current field action
-* capsule count
-
-### View current field state
-
-```bash
-phik field
-```
-
-Shows the latest coherence frame, including:
-
-* `C_current`
-* `C_star`
-* drift distance
-* `phi_flow`
-* `lambda_node`
-* `sigma_feedback`
-* recommended action
-
-### Show anchor state
-
-```bash
-phik anchor show
-```
-
-Shows the signed sovereign identity surface.
-
-### List capsules
-
-```bash
-phik capsule list
-```
-
-Lists continuity capsules currently available in the store.
-
-### Seal a capsule
+Create continuity:
 
 ```bash
 phik capsule seal \
-  --passphrase "your-passphrase" \
+  --passphrase "change-me" \
   --json-text '{"thread":"working session","phase":9}' \
   --summary "Manual checkpoint" \
   --tag checkpoint
 ```
 
-### Restore a capsule
-
-```bash
-phik capsule restore <capsule_id> --passphrase "your-passphrase"
-```
-
-### Build a local context bundle
+Build a context bundle and use the current legacy routing surface:
 
 ```bash
 phik think "How is the field?"
-```
-
-### Route a prompt through the coach layer
-
-```bash
 phik route "How should I begin?"
+phik ask "How should I begin?"
 ```
 
-### Friendly alias for route
+Run adapter-backed analysis:
 
 ```bash
-phik ask "How should I begin?"
+phik execute --adapter legacy --json-text '{"prompt":"normal"}'
+phik execute --adapter tiekat_v50 --json-text '{"prompt":"normal"}'
+```
+
+Apply operator control:
+
+```bash
+phik control review --note "manual check required"
+phik control quarantine --note "contain suspected contamination"
+phik control release_quarantine --note "operator review complete"
 ```
 
 ---
 
-## Routing model
+## CLI integration note
 
-PhiKernel v0.1.0 includes a deterministic first orchestration layer with three initial coach profiles:
+The shell currently routes `phik route` and `phik ask` through the deterministic legacy `CoachRouter`.
 
-### Titan
+The v0.2 constitutional runtime modules are available as Python APIs and are covered by the repository test suite, but they are not yet the default CLI routing path.
 
-Default grounding coach.
-Selected when:
+This prevents documentation from confusing:
 
-* anchor trust is invalid
-* field action is `alert`
-* field action is `restore`
-* pulse is offline
-* continuity is missing
+```text
+IMPLEMENTED
+VERIFIED
+EXPOSED
+AUTHORIZED
+```
 
-### Flow
+Those are separate states in PhiKernel.
 
-Momentum / creation / movement coach.
-Selected when:
+---
 
-* field is safe
-* prompt language suggests forward motion or creative work
+## Security and governance notes
 
-### Sage
+PhiKernel uses standard cryptographic primitives for identity and encrypted continuity. Symbolic or field models do not replace cryptographic verification.
 
-Reflection / pattern / interpretation coach.
-Selected when:
+The runtime is designed to fail conservatively:
 
-* field is safe
-* prompt language suggests reflection, meaning, or pattern recognition
+- expired or revoked authority fails closed
+- broken provenance blocks carriage/citation
+- unresolved contradiction blocks affected use
+- quarantine and seal override routing
+- temporary authority expires
+- control violations terminate the bounded session
+- human veto immediately stops bounded control
+- control failure cannot silently route around the refusal
+- runtime evidence may influence routing without rewriting constitutional law
 
-The router is intentionally deterministic in this version. It is not a fake multi-agent swarm and does not pretend to be a live LLM runtime.
+`HumanAuthoritySeal` is currently a structural human-authorization object. Binding it directly to the cryptographic Anchor identity is a future hardening step.
+
+---
+
+## What v0.2 does not claim
+
+PhiKernel v0.2 does **not**:
+
+- replace the Linux kernel
+- grant autonomous general control
+- allow routing scores to manufacture authority
+- let success self-promote a subsystem
+- let failure rewrite constitutional law
+- treat TIEKAT telemetry as established physical law
+- expose the full constitutional orchestrator as the default shell routing path yet
+- execute external side effects merely because the orchestrator licensed an action
+
+The external executor boundary remains explicit.
 
 ---
 
 ## Testing
 
-Run the full suite with:
+Run the full suite:
 
 ```bash
 python -m pytest
 ```
 
-The tests cover:
+The suite covers the original substrate plus constitutional invariants across warrants, transitions, provenance, contradiction, routing memory, mutability, clocks, coalitions, premises, relational routing, shadow comparison, witness promotion, bounded control, and the constitutional orchestrator.
 
-* anchor trust and tamper detection
-* capsule seal / verify / restore flows
-* heartbeat scheduling and checkpoint behavior
-* coherence scoring and threshold behavior
-* shell commands and CLI contracts
-* router safety overrides and routing decisions
-* shell-native ask/route integration
+CI currently targets Python 3.11 and 3.12.
 
 ---
 
-## Security notes
+## Phi Commons
 
-PhiKernel uses modern cryptographic primitives for local trust and continuity:
+PhiKernel is part of the **Phi Commons**.
 
-* Ed25519 for signatures
-* Argon2id for passphrase-based key derivation
-* AES-GCM for encrypted local storage
+Project-owned code and documentation are released under the MIT License unless otherwise noted. Third-party dependencies remain under their own licenses. See:
 
-The system is designed to be **local-first** and **private-first**.
+- `LICENSE`
+- `PHI_COMMONS.md`
+- `LICENSE_HISTORY.md`
+- `THIRD_PARTY_NOTICES.md`
 
-This version does **not** attempt to:
-
-* replace Linux kernel primitives
-* invent custom cryptography
-* claim TIEKAT as closed physical law
-* provide networked orchestration by default
+The pre-Commons proprietary state is preserved in repository history rather than rewritten.
 
 ---
 
-## License and Phi Commons status
+## v0.2 milestone
 
-Project-owned PhiKernel code and documentation are released under the **MIT License** unless otherwise noted.
+v0.1 established:
 
-PhiKernel is part of the **Phi Commons**. Third-party dependencies remain under their own licenses; see `THIRD_PARTY_NOTICES.md`.
+```text
+identity
+continuity
+pulse
+telemetry
+shell
+first deterministic routing
+```
 
-The pre-Commons proprietary state is preserved in repository history and documented in `LICENSE_HISTORY.md`.
+v0.2 adds:
 
----
+```text
+governed transitions
+evidence custody
+contradiction state
+routing memory
+stratified mutability
+computational clock skins
+temporary coalitions
+premise governance
+relational routing
+shadow comparison
+behavioral witness
+human-gated promotion
+finite bounded control
+constitutional orchestration
+```
 
-## Roadmap direction
+The result is not an autonomous operating system and not a generic agent framework.
 
-The v0.1.0 milestone establishes the substrate.
-
-Future work may include:
-
-* expanded coach registry
-* richer shell workflows
-* local API surface
-* stronger packaging and deployment flows
-* deeper wellness and continuity modules
-* sovereign orchestration on top of the existing braid
-
----
-
-## Summary
-
-PhiKernel v0.1.0 is the first stable braid of:
-
-* **identity**
-* **memory**
-* **pulse**
-* **vision**
-* **voice**
-* **safe first orchestration**
-
-It is the beginning of a local runtime that can remember, verify, observe, and respond without discarding continuity.
-
-The foundation is now real.
+It is a local runtime foundation for **computational capability under explicit, inspectable, receipted authority**.
