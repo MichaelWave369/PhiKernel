@@ -474,8 +474,7 @@ def _require_no_active_control(state: PersistedConstitutionalState) -> None:
         )
 
 
-def _validate_advise_receipt(
-    promotion: PromotionState,
+def _validate_prior_advise_receipt(
     receipt: PromotionAuthorizationReceipt,
 ) -> None:
     if receipt.prior_mode != SHADOW:
@@ -486,10 +485,21 @@ def _validate_advise_receipt(
         raise ConstitutionalPersistenceLineageError(
             "ADVISE authorization prior revision must be >= 0"
         )
+    if receipt.resulting_revision != receipt.prior_revision + 1:
+        raise ConstitutionalPersistenceLineageError(
+            "ADVISE authorization receipt must advance revision exactly once"
+        )
     if receipt.resulting_mode != ADVISE:
         raise ConstitutionalPersistenceLineageError(
             "promotion receipt does not result in ADVISE"
         )
+
+
+def _validate_advise_receipt(
+    promotion: PromotionState,
+    receipt: PromotionAuthorizationReceipt,
+) -> None:
+    _validate_prior_advise_receipt(receipt)
     if receipt.resulting_revision != promotion.revision:
         raise ConstitutionalPersistenceLineageError(
             "ADVISE receipt revision does not match promotion state"
@@ -514,13 +524,18 @@ def _validate_bounded_lineage(
     session: Any,
     now: float,
 ) -> None:
-    if advise_receipt.resulting_mode != ADVISE:
-        raise ConstitutionalPersistenceLineageError(
-            "bounded lineage requires prior ADVISE receipt"
-        )
+    _validate_prior_advise_receipt(advise_receipt)
     if control_receipt.prior_mode != ADVISE:
         raise ConstitutionalPersistenceLineageError(
             "control promotion receipt must begin from ADVISE"
+        )
+    if control_receipt.prior_revision < 0:
+        raise ConstitutionalPersistenceLineageError(
+            "control promotion prior revision must be >= 0"
+        )
+    if control_receipt.resulting_revision != control_receipt.prior_revision + 1:
+        raise ConstitutionalPersistenceLineageError(
+            "control promotion receipt must advance revision exactly once"
         )
     if advise_receipt.resulting_revision != control_receipt.prior_revision:
         raise ConstitutionalPersistenceLineageError(
@@ -817,7 +832,15 @@ def _snapshot_from_record(
             "constitutional snapshot hash mismatch"
         )
 
-    state = _state_from_payload(payload)
+    try:
+        state = _state_from_payload(payload)
+    except ConstitutionalPersistenceError:
+        raise
+    except Exception as exc:
+        raise ConstitutionalPersistenceIntegrityError(
+            "constitutional snapshot contains malformed typed state"
+        ) from exc
+
     validation_time = (
         time.time() if now is None else float(now)
     )
