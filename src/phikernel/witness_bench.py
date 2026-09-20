@@ -830,7 +830,7 @@ def authorize_promotion(
     report: WitnessBenchReport,
     human_seal: HumanAuthoritySeal,
     *,
-    anchor_service: Any,
+    anchor_service: Any | None = None,
     applied_at: float | None = None,
 ) -> tuple[PromotionState, PromotionAuthorizationReceipt]:
     if state.mode != proposal.base_mode:
