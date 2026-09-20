@@ -33,6 +33,7 @@ v0.2 establishes a tested constitutional runtime core for:
 - human-gated bounded control
 - mode-aware constitutional orchestration
 - persistent constitutional state with hash-chained history
+- restart-safe bounded constitutional action transactions
 
 The current CLI still exposes the original substrate and legacy coach-routing path. The v0.2 constitutional layers are implemented as Python runtime APIs and are not yet fully wired into `phik route` / `phik ask`.
 
@@ -353,6 +354,53 @@ The shell now consumes this store for `phik constitutional status` and
 `phik constitutional route`. Promotion state is resumed only after the store
 reconstructs and validates its typed authority lineage.
 
+**Constitutional action transactions**  
+`constitutional_action.py`
+
+PhiKernel can consume a persisted BOUNDED_CONTROL lease through an explicit
+bounded action transaction.
+
+The initial v0.2 executor allowlist is intentionally narrow:
+
+```text
+execute:runtime/adapter/legacy
+execute:runtime/adapter/tiekat_v50
+```
+
+It does not run arbitrary subprocesses, shell commands, or Python code.
+
+The transaction is write-ahead and fail-conservative:
+
+```text
+ControlActionRequest
+    ↓
+constitutional route + control license
+    ↓
+persist pending action / spent budgets
+    ↓
+journal LICENSED
+    ↓
+execute allowlisted runtime adapter
+    ↓
+journal OUTCOME + post-action receipt
+    ↓
+persist completed session or collapsed SHADOW
+    ↓
+journal COMMITTED
+```
+
+A process interruption after licensing therefore leaves a persisted pending
+action with its resource/action/clock spend already accounted for. A later
+action cannot silently reuse that authority.
+
+The action evidence journal lives at:
+
+```text
+.phik-runtime/constitutional/actions.jsonl
+```
+
+and is independently SHA-256 hash-chained.
+
 ---
 
 ## Runtime and trust controls
@@ -418,7 +466,8 @@ PhiKernel/
 │   ├── control_witness.py
 │   ├── constitutional_runtime.py
 │   ├── constitutional_shell.py
-│   └── constitutional_store.py
+│   ├── constitutional_store.py
+│   └── constitutional_action.py
 └── tests/
     └── ...
 ```
@@ -499,6 +548,23 @@ phik constitutional route "How should I begin?"
 phik --json constitutional route "I need momentum to create and start this draft"
 ```
 
+When an exact persisted BOUNDED_CONTROL contract authorizes a normalized runtime
+adapter target, execute one bounded action:
+
+```bash
+phik --json constitutional action \
+  --adapter legacy \
+  --json-text '{"prompt":"normal"}' \
+  --resource compute_ms=10 \
+  --clock-ticks 2 \
+  --evidence evidence:approved \
+  --rollback-ref rollback:no-side-effect
+```
+
+The actor comes from the persisted control session. The operation is fixed to
+`execute`, and the target is derived from the allowlisted adapter. CLI input
+cannot substitute a different actor or arbitrary execution target.
+
 With no persisted constitutional snapshot, the route command begins from
 genesis `SHADOW`. If a validated ADVISE snapshot exists, the shell resumes
 ADVISE and surfaces Crane Fly vNext as an advisory route while the legacy coach
@@ -556,6 +622,12 @@ orchestrator's automatic collapse to SHADOW is persisted back to the
 constitutional history so releasing containment cannot resurrect the old
 bounded lease.
 
+`phik constitutional action` is the only shell path in this milestone that
+consumes the bounded-control lease. It requires an exact contract match and
+persists the pending licensed action before invoking the executor. Successful
+or failed outcomes are receipted and written to the action journal before the
+session is unlocked or privilege is collapsed.
+
 This keeps the repository from confusing:
 
 ```text
@@ -600,7 +672,8 @@ PhiKernel v0.2 does **not**:
 - let failure rewrite constitutional law
 - treat TIEKAT telemetry as established physical law
 - expose the full constitutional orchestrator as the default shell routing path yet
-- execute external side effects merely because the orchestrator licensed an action
+- execute arbitrary host commands merely because the orchestrator licensed an action
+- treat the initial runtime-adapter executor as permission for subprocess or arbitrary Python execution
 
 The external executor boundary remains explicit.
 
@@ -667,6 +740,7 @@ finite bounded control
 constitutional orchestration
 persistent constitutional state
 restart-safe shell state resume
+bounded constitutional action transactions
 ```
 
 The result is not an autonomous operating system and not a generic agent framework.
