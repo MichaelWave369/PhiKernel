@@ -1,27 +1,16 @@
 from __future__ import annotations
 
-"""
-phik_shell_v0_1_2.py
+"""PhiKernel v0.2 human-facing CLI / terminal bridge.
 
-Reference implementation for PhiKernel's XiOS-facing CLI / terminal bridge,
-now with native routing integration.
+The shell retains the original substrate commands and deterministic legacy
+CoachRouter while adding explicit access to the constitutional runtime in
+SHADOW mode through:
 
-What this version adds over v0.1.1
-----------------------------------
-- `phik route <prompt>` -> build a think bundle and route it to the coach layer.
-- `phik ask <prompt>`   -> friendly alias for `route`.
-- In-memory integration with `phik_router_v0_1_0.py`; no fake subprocess needed.
-- Shared rendering path for router replies in text or JSON mode.
+    phik constitutional route <prompt>
 
-Existing commands retained
---------------------------
-- `phik status`
-- `phik field`
-- `phik anchor show`
-- `phik capsule list`
-- `phik capsule seal`
-- `phik capsule restore <capsule_id>`
-- `phik think`
+The legacy `phik route` and `phik ask` commands remain unchanged and
+authoritative. The constitutional command observes beside them; it does not
+manufacture ADVISE or BOUNDED_CONTROL authority.
 """
 
 from dataclasses import dataclass
