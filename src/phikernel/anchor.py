@@ -178,6 +178,16 @@ class VerificationResult:
 
 
 @dataclass(frozen=True)
+class PayloadVerificationResult:
+    valid: bool
+    reason: str
+    anchor_id: str
+    manifest_hash: str
+    payload_hash: str
+    verified_at: float = field(default_factory=time.time)
+
+
+@dataclass(frozen=True)
 class KeystoreEnvelope:
     """Encrypted private-key container stored on disk."""
 
@@ -404,6 +414,66 @@ class StateAnchorService:
         """
         private_key = self.unlock_signing_key(passphrase)
         return _b64e(private_key.sign(payload))
+
+    def verify_bytes(
+        self,
+        payload: bytes,
+        signature_b64: str,
+    ) -> PayloadVerificationResult:
+        """Verify a detached payload signature against the current Anchor.
+
+        This verifies both the Anchor manifest itself and the detached Ed25519
+        signature. It does not grant authority to the payload; callers decide
+        what a valid signature means in their own protocol.
+        """
+        manifest = self.load_manifest()
+        anchor_verification = self.verify_anchor()
+        payload_hash = hashlib.sha256(payload).hexdigest()
+
+        if not anchor_verification.valid:
+            return PayloadVerificationResult(
+                valid=False,
+                reason=(
+                    "Anchor manifest is invalid: "
+                    f"{anchor_verification.reason}"
+                ),
+                anchor_id=manifest.anchor_id,
+                manifest_hash=manifest.manifest_hash(),
+                payload_hash=payload_hash,
+            )
+        if not signature_b64:
+            return PayloadVerificationResult(
+                valid=False,
+                reason="Detached payload signature is missing",
+                anchor_id=manifest.anchor_id,
+                manifest_hash=manifest.manifest_hash(),
+                payload_hash=payload_hash,
+            )
+
+        try:
+            public_key = Ed25519PublicKey.from_public_bytes(
+                _b64d(manifest.public_key)
+            )
+            public_key.verify(
+                _b64d(signature_b64),
+                payload,
+            )
+        except (InvalidSignature, ValueError, TypeError):
+            return PayloadVerificationResult(
+                valid=False,
+                reason="Detached payload signature verification failed",
+                anchor_id=manifest.anchor_id,
+                manifest_hash=manifest.manifest_hash(),
+                payload_hash=payload_hash,
+            )
+
+        return PayloadVerificationResult(
+            valid=True,
+            reason="Detached payload signature verified successfully",
+            anchor_id=manifest.anchor_id,
+            manifest_hash=manifest.manifest_hash(),
+            payload_hash=payload_hash,
+        )
 
     def public_status(self) -> dict[str, Any]:
         """Minimal status surface safe for shell / UI display."""
