@@ -5,17 +5,21 @@ from __future__ import annotations
 The shell adapter exposes the constitutional runtime without manufacturing
 promotion authority.
 
-v0.2 shell support is intentionally SHADOW-only. The shell may construct
-temporary routing-evaluation warrants because those warrants authorize only
-consideration as a routing candidate:
+The shell consumes an already-validated persisted constitutional state. It may
+resume SHADOW or ADVISE routing behavior and may inspect BOUNDED_CONTROL without
+manufacturing a control action.
+
+The shell may construct temporary routing-evaluation warrants because those
+warrants authorize only consideration as a routing candidate:
 
     route-evaluate:coach/<Coach>
 
 They do not authorize tool execution, output commit, memory mutation, or
 bounded steering.
 
-ADVISE and BOUNDED_CONTROL require persisted, verifiable promotion/grant
-lineage and are not synthesized from CLI flags.
+ADVISE and BOUNDED_CONTROL are never synthesized from CLI flags. They must
+arrive through the constitutional state store with verifiable promotion/grant
+lineage.
 """
 
 from dataclasses import dataclass
@@ -23,16 +27,17 @@ from typing import Any
 import time
 
 from phikernel.constitutional_runtime import ConstitutionalRuntimeResult, orchestrate_runtime
+from phikernel.constitutional_store import PersistedConstitutionalState
 from phikernel.control_state import RuntimeControlState
 from phikernel.relational_router import RelationalRoutingRequest, RouteCandidate
 from phikernel.router import CoachRouter
 from phikernel.routing_shadow import CoachRouteBinding
 from phikernel.warrant import Warrant
-from phikernel.witness_bench import PromotionState
+from phikernel.witness_bench import ADVISE, BOUNDED_CONTROL, SHADOW, PromotionState
 
 
 CONSTITUTIONAL_SHELL_VERSION = "0.2.0"
-SUPPORTED_SHELL_MODE = "SHADOW"
+SUPPORTED_SHELL_MODES = {SHADOW, ADVISE, BOUNDED_CONTROL}
 
 COACH_ROUTE_KEYS = {
     "Titan": "route:titan",
@@ -77,13 +82,16 @@ class ShellCandidateSeed:
 class ConstitutionalShellResult:
     runtime: ConstitutionalRuntimeResult
     candidate_seeds: tuple[ShellCandidateSeed, ...]
-    mode: str = SUPPORTED_SHELL_MODE
+    mode: str
+    persisted_state_present: bool
     version: str = CONSTITUTIONAL_SHELL_VERSION
 
     def __post_init__(self) -> None:
-        if self.mode != SUPPORTED_SHELL_MODE:
+        if self.mode not in SUPPORTED_SHELL_MODES:
+            raise ConstitutionalShellError("unsupported constitutional shell mode")
+        if self.runtime.mode_before != self.mode:
             raise ConstitutionalShellError(
-                "v0.2 shell adapter supports SHADOW mode only"
+                "shell mode does not match orchestrator input mode"
             )
 
     def to_record(self) -> dict[str, Any]:
@@ -92,6 +100,7 @@ class ConstitutionalShellResult:
             {
                 "constitutional_shell_version": self.version,
                 "shell_mode": self.mode,
+                "persisted_state_present": self.persisted_state_present,
                 "candidate_seeds": [
                     seed.to_record() for seed in self.candidate_seeds
                 ],
@@ -105,17 +114,32 @@ class ConstitutionalShellResult:
         return record
 
 
-def run_constitutional_shell_shadow(
+def run_constitutional_shell(
     think_bundle: dict[str, Any],
     *,
+    constitutional_state: PersistedConstitutionalState | None = None,
+    persisted_state_present: bool = False,
     runtime_control_state: RuntimeControlState | None = None,
     router: CoachRouter | None = None,
     now: float | None = None,
 ) -> ConstitutionalShellResult:
-    """Run one shell think bundle through the v0.2 SHADOW orchestration path."""
+    """Run one shell think bundle using already-validated constitutional state.
+
+    This function does not create promotion authority. If no state is supplied,
+    it uses genesis SHADOW. BOUNDED_CONTROL is observable here, but without an
+    explicit ControlActionRequest the orchestrator cannot license steering.
+    """
 
     evaluated_at = time.time() if now is None else float(now)
     active_router = router or CoachRouter()
+    state = constitutional_state or PersistedConstitutionalState.genesis()
+    mode = state.promotion_state.mode
+
+    if mode not in SUPPORTED_SHELL_MODES:
+        raise ConstitutionalShellError(
+            f"unsupported persisted constitutional mode '{mode}'"
+        )
+
     seeds = build_shell_candidate_seeds(think_bundle, router=active_router)
     candidates = build_shell_route_candidates(
         seeds,
@@ -126,7 +150,7 @@ def run_constitutional_shell_shadow(
         requested_at=evaluated_at,
         metadata={
             "source": "phik-shell",
-            "mode": SUPPORTED_SHELL_MODE,
+            "mode": mode,
             "authority": "routing-evaluation-only",
         },
     )
@@ -137,17 +161,41 @@ def run_constitutional_shell_shadow(
 
     runtime = orchestrate_runtime(
         think_bundle,
-        PromotionState.genesis(),
+        state.promotion_state,
         request,
         candidates,
         bindings=bindings,
         runtime_control_state=runtime_control_state or RuntimeControlState(),
         legacy_router=active_router,
+        control_contract=state.control_contract,
+        control_grant=state.control_grant,
+        control_session=state.control_session,
+        control_action=None,
         now=evaluated_at,
     )
     return ConstitutionalShellResult(
         runtime=runtime,
         candidate_seeds=seeds,
+        mode=mode,
+        persisted_state_present=bool(persisted_state_present),
+    )
+
+
+def run_constitutional_shell_shadow(
+    think_bundle: dict[str, Any],
+    *,
+    runtime_control_state: RuntimeControlState | None = None,
+    router: CoachRouter | None = None,
+    now: float | None = None,
+) -> ConstitutionalShellResult:
+    """Backward-compatible explicit genesis-SHADOW adapter."""
+    return run_constitutional_shell(
+        think_bundle,
+        constitutional_state=PersistedConstitutionalState.genesis(),
+        persisted_state_present=False,
+        runtime_control_state=runtime_control_state,
+        router=router,
+        now=now,
     )
 
 

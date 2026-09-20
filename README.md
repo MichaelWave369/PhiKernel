@@ -349,9 +349,9 @@ The hash chain is an integrity/replay mechanism, not a cryptographic human
 signature. Binding persisted snapshots directly to the Anchor signing identity
 remains a future hardening step.
 
-At this milestone the store is implemented as a Python runtime API. The shell
-does not yet automatically resume ADVISE or BOUNDED_CONTROL from persisted
-state.
+The shell now consumes this store for `phik constitutional status` and
+`phik constitutional route`. Promotion state is resumed only after the store
+reconstructs and validates its typed authority lineage.
 
 ---
 
@@ -491,16 +491,25 @@ phik route "How should I begin?"
 phik ask "How should I begin?"
 ```
 
-Run the constitutional router explicitly in SHADOW mode:
+Inspect and use the constitutional routing state:
 
 ```bash
+phik constitutional status
 phik constitutional route "How should I begin?"
 phik --json constitutional route "I need momentum to create and start this draft"
 ```
 
-This command keeps the legacy coach result authoritative while Crane Fly vNext
-evaluates the same request through the constitutional routing path and emits a
-comparison receipt. The shell-generated candidate warrants are scoped only to
+With no persisted constitutional snapshot, the route command begins from
+genesis `SHADOW`. If a validated ADVISE snapshot exists, the shell resumes
+ADVISE and surfaces Crane Fly vNext as an advisory route while the legacy coach
+remains authoritative.
+
+If validated BOUNDED_CONTROL state exists, `constitutional route` may inspect
+routing under that mode but cannot license steering because the route command
+does not create a `ControlActionRequest`. The dedicated control warrant,
+action count, resource budget, and clock budget remain untouched.
+
+The shell-generated coach candidate warrants are scoped only to
 `route-evaluate:coach/<Coach>`; they do not authorize tool execution or
 bounded steering.
 
@@ -532,15 +541,20 @@ The v0.2 constitutional runtime is now exposed explicitly through:
 phik constitutional route "<prompt>"
 ```
 
-That shell path is intentionally **SHADOW-only**. It runs the constitutional
-orchestrator and Crane Fly vNext beside the legacy router, but does not
-manufacture ADVISE or BOUNDED_CONTROL promotion state from command-line flags.
+The shell loads constitutional mode from the validated persistent state store.
+It does not manufacture ADVISE or BOUNDED_CONTROL from command-line flags.
 
-ADVISE and BOUNDED_CONTROL require persisted/verifiable promotion,
-human-authorization, grant, and session lineage before they can become shell
-runtime modes. The constitutional state store now provides that persistence
-primitive, but automatic shell resume is deliberately a separate integration
-milestone.
+- missing snapshot -> genesis SHADOW
+- validated ADVISE snapshot -> ADVISE resumes
+- validated BOUNDED_CONTROL snapshot -> mode/grant/session lineage resumes, but
+  `constitutional route` does not spend the control lease because it has no
+  exact control action
+- corrupt, tampered, stale, or expired persistence -> shell fails closed
+
+If seal or quarantine blocks an active persisted BOUNDED_CONTROL state, the
+orchestrator's automatic collapse to SHADOW is persisted back to the
+constitutional history so releasing containment cannot resurrect the old
+bounded lease.
 
 This keeps the repository from confusing:
 
@@ -652,6 +666,7 @@ human-gated promotion
 finite bounded control
 constitutional orchestration
 persistent constitutional state
+restart-safe shell state resume
 ```
 
 The result is not an autonomous operating system and not a generic agent framework.
