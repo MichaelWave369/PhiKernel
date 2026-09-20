@@ -34,8 +34,8 @@ v0.2 establishes a tested constitutional runtime core for:
 - mode-aware constitutional orchestration
 - persistent constitutional state with hash-chained history
 - restart-safe bounded constitutional action transactions
-non-replaying crash reconciliation
 - non-replaying constitutional action crash recovery
+- Anchor-signed constitutional head attestations
 
 The current CLI still exposes the original substrate and legacy coach-routing path. The v0.2 constitutional layers are implemented as Python runtime APIs and are not yet fully wired into `phik route` / `phik ask`.
 
@@ -348,11 +348,11 @@ Missing constitutional state means genesis `SHADOW`. Existing malformed,
 tampered, stale, expired, or lineage-inconsistent state does **not** silently
 reset to SHADOW.
 
-The hash chain is an integrity/replay mechanism, not a cryptographic human
-signature. Binding persisted snapshots directly to the Anchor signing identity
-remains a future hardening step.
+The state/history hash chain is an integrity/replay mechanism. PhiKernel now
+supports a separate Anchor attestation layer that signs the exact current
+constitutional chain heads without rewriting prior history.
 
-The shell now consumes this store for `phik constitutional status` and
+The shell consumes this store for `phik constitutional status` and
 `phik constitutional route`. Promotion state is resumed only after the store
 reconstructs and validates its typed authority lineage.
 
@@ -447,7 +447,62 @@ The structural recovery loader may inspect expired authority solely so it can be
 removed or so an already-receipted outcome can be finalized. It is not an
 alternate authorization path.
 
+**Anchor-backed constitutional attestations**  
+`constitutional_attestation.py`
+
+PhiKernel can cryptographically bind the current constitutional persistence
+heads to the existing StateAnchor Ed25519 identity.
+
+The attestation signs:
+
+- current constitutional state snapshot hash
+- constitutional state-history length
+- current action-journal event hash
+- action-journal length
+- exact Anchor ID
+- exact signed Anchor manifest hash
+- previous constitutional attestation hash
+- an explicit protocol domain separator
+
+The detached attestation chain lives at:
+
+```text
+.phik-runtime/constitutional/anchor_attestations.jsonl
+```
+
+A signed current head authenticates the structural hash history behind that head
+without rewriting older snapshots or action events.
+
+Verification deliberately distinguishes:
+
+```text
+VALID + CURRENT
+→ current constitutional heads are Anchor-authenticated
+
+VALID + STALE
+→ signature is authentic, but newer constitutional writes exist
+
+INVALID
+→ Anchor identity, signature, or attestation chain failed verification
+```
+
+The shell surfaces are:
+
+```bash
+phik constitutional anchor bind --passphrase "<anchor-passphrase>"
+phik constitutional anchor verify
+```
+
+The passphrase is required only to create a new detached signature. Verification
+uses the public key from the signed Anchor manifest.
+
+An Anchor attestation proves identity binding of persisted constitutional
+evidence. It does **not** itself grant runtime authority, promote routing mode,
+or retroactively turn the structural `HumanAuthoritySeal` object into a
+cryptographic human authorization.
+
 ---
+
 
 ## Runtime and trust controls
 
@@ -514,7 +569,8 @@ PhiKernel/
 │   ├── constitutional_shell.py
 │   ├── constitutional_store.py
 │   ├── constitutional_action.py
-│   └── constitutional_recovery.py
+│   ├── constitutional_recovery.py
+│   └── constitutional_attestation.py
 └── tests/
     └── ...
 ```
@@ -619,6 +675,13 @@ phik constitutional recovery status
 phik constitutional recovery reconcile
 ```
 
+Anchor-bind the current constitutional state/action heads and verify them later:
+
+```bash
+phik constitutional anchor bind --passphrase "change-me"
+phik constitutional anchor verify
+```
+
 Recovery never reruns the action. If execution outcome is unknown, the v0.2
 analysis-only executor is treated with a verified no-op rollback and bounded
 privilege collapses to SHADOW. If an OUTCOME receipt survived, PhiKernel applies
@@ -692,6 +755,11 @@ mutation. `phik constitutional recovery reconcile` never calls the executor:
 it applies already-journaled OUTCOME evidence, repairs a missing COMMITTED
 marker, or conservatively collapses unknown/expired bounded authority.
 
+`phik constitutional anchor verify` reports whether the detached Anchor
+attestation chain is valid and whether its latest signature still covers the
+current constitutional state/action heads. A valid-but-stale signature is
+reported as stale rather than treated as current authentication.
+
 This keeps the repository from confusing:
 
 ```text
@@ -721,7 +789,11 @@ The runtime is designed to fail conservatively:
 - control failure cannot silently route around the refusal
 - runtime evidence may influence routing without rewriting constitutional law
 
-`HumanAuthoritySeal` is currently a structural human-authorization object. Binding it directly to the cryptographic Anchor identity is a future hardening step.
+`HumanAuthoritySeal` is still a structural human-authorization object. The
+constitutional attestation layer authenticates persisted ledger heads, not the
+individual promotion/control seal action itself. Binding each human
+authorization receipt directly to the Anchor identity remains a separate
+hardening step.
 
 ---
 
@@ -805,6 +877,8 @@ constitutional orchestration
 persistent constitutional state
 restart-safe shell state resume
 bounded constitutional action transactions
+non-replaying crash reconciliation
+Anchor-signed constitutional head attestations
 ```
 
 The result is not an autonomous operating system and not a generic agent framework.

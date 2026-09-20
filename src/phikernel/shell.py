@@ -35,6 +35,10 @@ from phikernel.constitutional_action import (
     execute_constitutional_action,
     parse_resource_spends,
 )
+from phikernel.constitutional_attestation import (
+    ConstitutionalAttestationError,
+    ConstitutionalAttestationStore,
+)
 from phikernel.control_state import RuntimeControlState, apply_operator_action, load_runtime_control_state
 from phikernel.constitutional_shell import run_constitutional_shell
 from phikernel.constitutional_store import (
@@ -385,12 +389,28 @@ class PhiKernelShell:
                 f"Constitutional action journal failed validation: {exc}"
             ) from exc
 
+        self._ensure_runtime_services()
+        try:
+            attestation = ConstitutionalAttestationStore(
+                self.paths.runtime_root,
+                self.anchor_service,
+            ).verify()
+        except (
+            ConstitutionalAttestationError,
+            ConstitutionalPersistenceError,
+            ConstitutionalActionError,
+        ) as exc:
+            raise ShellError(
+                f"Constitutional Anchor attestation failed validation: {exc}"
+            ) from exc
+
         return {
             "constitutional_version": "0.2.0",
             "persisted_state_present": persisted,
             "snapshot_hash": snapshot_hash,
             "history_count": history_count,
             "action_journal_count": action_journal_count,
+            "anchor_attestation": attestation.to_record(),
             "mode": state.promotion_state.mode,
             "revision": state.promotion_state.revision,
             "last_receipt_id": state.promotion_state.last_receipt_id,
@@ -407,6 +427,56 @@ class PhiKernelShell:
             ),
             "control": control,
         }
+
+    def cmd_constitutional_anchor_bind(
+        self,
+        args: argparse.Namespace,
+    ) -> dict[str, Any]:
+        """Anchor-sign the exact current constitutional chain heads."""
+        self._ensure_runtime_services()
+        try:
+            store = ConstitutionalAttestationStore(
+                self.paths.runtime_root,
+                self.anchor_service,
+            )
+            attestation = store.bind_current_heads(
+                passphrase=args.passphrase,
+            )
+            verification = store.verify()
+        except (
+            ConstitutionalAttestationError,
+            ConstitutionalPersistenceError,
+            ConstitutionalActionError,
+        ) as exc:
+            raise ShellError(
+                f"Constitutional Anchor bind failed: {exc}"
+            ) from exc
+
+        return {
+            "attestation": attestation.to_record(),
+            "verification": verification.to_record(),
+        }
+
+    def cmd_constitutional_anchor_verify(
+        self,
+        args: argparse.Namespace,
+    ) -> dict[str, Any]:
+        """Verify constitutional heads against the current Anchor identity."""
+        self._ensure_runtime_services()
+        try:
+            verification = ConstitutionalAttestationStore(
+                self.paths.runtime_root,
+                self.anchor_service,
+            ).verify()
+        except (
+            ConstitutionalAttestationError,
+            ConstitutionalPersistenceError,
+            ConstitutionalActionError,
+        ) as exc:
+            raise ShellError(
+                f"Constitutional Anchor verification failed: {exc}"
+            ) from exc
+        return verification.to_record()
 
     def cmd_constitutional_route(self, args: argparse.Namespace) -> dict[str, Any]:
         """Route using validated persisted constitutional state."""
@@ -811,6 +881,34 @@ class PhiKernelShell:
         )
         constitutional_status.set_defaults(handler=self.cmd_constitutional_status)
 
+        constitutional_anchor = constitutional_sub.add_parser(
+            "anchor",
+            help="Bind or verify constitutional persistence against StateAnchor",
+        )
+        constitutional_anchor_sub = constitutional_anchor.add_subparsers(
+            dest="constitutional_anchor_command",
+            required=True,
+        )
+        constitutional_anchor_bind = constitutional_anchor_sub.add_parser(
+            "bind",
+            help="Sign the exact current constitutional state/action heads",
+        )
+        constitutional_anchor_bind.add_argument(
+            "--passphrase",
+            required=True,
+            help="Anchor passphrase used only to create this detached signature",
+        )
+        constitutional_anchor_bind.set_defaults(
+            handler=self.cmd_constitutional_anchor_bind
+        )
+        constitutional_anchor_verify = constitutional_anchor_sub.add_parser(
+            "verify",
+            help="Verify the attestation chain and whether it covers current heads",
+        )
+        constitutional_anchor_verify.set_defaults(
+            handler=self.cmd_constitutional_anchor_verify
+        )
+
         constitutional_route = constitutional_sub.add_parser(
             "route",
             help="Route using the validated persisted constitutional mode",
@@ -939,6 +1037,8 @@ class PhiKernelShell:
             return self._render_think(result)
         if command == "constitutional" and args.constitutional_command == "status":
             return self._render_constitutional_status(result)
+        if command == "constitutional" and args.constitutional_command == "anchor":
+            return self._render_constitutional_anchor(result, args)
         if command == "constitutional" and args.constitutional_command == "route":
             return self._render_constitutional_route(result)
         if command == "constitutional" and args.constitutional_command == "action":
@@ -1085,6 +1185,7 @@ class PhiKernelShell:
 
     def _render_constitutional_status(self, result: dict[str, Any]) -> str:
         control = result.get("control") or {}
+        attestation = result.get("anchor_attestation") or {}
         lines = [
             ":: PHIKERNEL CONSTITUTIONAL STATUS ::",
             f"Persisted: {result.get('persisted_state_present')}",
@@ -1094,6 +1195,11 @@ class PhiKernelShell:
             f"Human Seal: {result.get('authorized_by_seal_id')}",
             f"History Entries: {result.get('history_count')}",
             f"Action Journal Entries: {result.get('action_journal_count')}",
+            (
+                "Anchor Attested: "
+                f"{attestation.get('authenticated_current_state')} "
+                f"(valid={attestation.get('valid')} current={attestation.get('current')})"
+            ),
         ]
         if control:
             lines.extend(
@@ -1107,6 +1213,42 @@ class PhiKernelShell:
                 ]
             )
         return "\n".join(lines)
+
+    def _render_constitutional_anchor(
+        self,
+        result: dict[str, Any],
+        args: argparse.Namespace,
+    ) -> str:
+        if args.constitutional_anchor_command == "bind":
+            attestation = result.get("attestation") or {}
+            verification = result.get("verification") or {}
+            heads = attestation.get("heads") or {}
+            return "\n".join(
+                [
+                    ":: PHIKERNEL CONSTITUTIONAL ANCHOR BIND ::",
+                    f"Attestation: {attestation.get('attestation_id')}",
+                    f"Anchor: {attestation.get('anchor_id')}",
+                    f"State Head: {heads.get('state_snapshot_hash')}",
+                    f"Action Head: {heads.get('action_event_hash')}",
+                    f"Attestation Hash: {attestation.get('attestation_hash')}",
+                    f"Current Verified: {verification.get('authenticated_current_state')}",
+                ]
+            )
+
+        heads = result.get("current_heads") or {}
+        return "\n".join(
+            [
+                ":: PHIKERNEL CONSTITUTIONAL ANCHOR VERIFY ::",
+                f"Valid: {result.get('valid')}",
+                f"Current: {result.get('current')}",
+                f"Authenticated Current State: {result.get('authenticated_current_state')}",
+                f"Attestations: {result.get('attestation_count')}",
+                f"Anchor: {result.get('anchor_id')}",
+                f"State Head: {heads.get('state_snapshot_hash')}",
+                f"Action Head: {heads.get('action_event_hash')}",
+                f"Reason: {result.get('reason')}",
+            ]
+        )
 
     def _render_constitutional_action(self, result: dict[str, Any]) -> str:
         runtime = result.get("runtime") or {}

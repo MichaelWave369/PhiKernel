@@ -102,3 +102,27 @@ def test_sign_bytes_round_trip(initialized_service: tuple[StateAnchorService, st
 
     assert isinstance(signature_b64, str)
     assert len(signature_b64) > 0
+
+
+def test_verify_bytes_round_trip_and_tamper_detection(
+    initialized_service: tuple[StateAnchorService, str],
+) -> None:
+    """PROVE: Detached Anchor signatures verify exact bytes only."""
+    service, passphrase = initialized_service
+    payload = b"constitutional-head:abc123"
+
+    signature = service.sign_bytes(passphrase, payload)
+    valid = service.verify_bytes(payload, signature)
+    tampered = service.verify_bytes(
+        b"constitutional-head:abc124",
+        signature,
+    )
+
+    assert valid.valid is True
+    assert valid.reason == "Detached payload signature verified successfully"
+    assert valid.anchor_id == service.load_manifest().anchor_id
+    assert valid.payload_hash
+
+    assert tampered.valid is False
+    assert "signature verification failed" in tampered.reason.lower()
+    assert tampered.payload_hash != valid.payload_hash
