@@ -217,7 +217,17 @@ class ConstitutionalStateStore:
 
         prior: ConstitutionalSnapshot | None = None
         if self.state_file.exists():
-            prior = self.load_snapshot(now=validation_time)
+            try:
+                prior = self.load_snapshot(now=validation_time)
+            except ConstitutionalPersistenceExpiredError:
+                if state.promotion_state.mode != SHADOW:
+                    raise
+                prior = self.load_snapshot_for_recovery()
+                if prior.state.promotion_state.mode not in {
+                    ADVISE,
+                    BOUNDED_CONTROL,
+                }:
+                    raise
             _validate_successor(prior.state, state)
 
         snapshot_id = str(uuid.uuid4())
