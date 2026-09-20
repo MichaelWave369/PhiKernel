@@ -1154,3 +1154,236 @@ def test_recovery_parser_has_no_executor_or_payload_options(
                 "legacy",
             ]
         )
+
+
+def test_constitutional_anchor_verify_reports_unbound_state(
+    initialized_shell,
+    runtime_paths: RuntimePaths,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shell = _ready_shell(initialized_shell, runtime_paths)
+    _persist_advise(shell)
+
+    exit_code = shell.run(
+        [
+            "--runtime-root",
+            str(runtime_paths.runtime_root),
+            "--json",
+            "constitutional",
+            "anchor",
+            "verify",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["valid"] is False
+    assert payload["current"] is False
+    assert payload["authenticated_current_state"] is False
+    assert payload["attestation_count"] == 0
+
+
+def test_constitutional_anchor_bind_authenticates_current_heads(
+    initialized_shell,
+    runtime_paths: RuntimePaths,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shell = _ready_shell(initialized_shell, runtime_paths)
+    passphrase = initialized_shell[1]
+    _persist_advise(shell)
+
+    exit_code = shell.run(
+        [
+            "--runtime-root",
+            str(runtime_paths.runtime_root),
+            "--json",
+            "constitutional",
+            "anchor",
+            "bind",
+            "--passphrase",
+            passphrase,
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["attestation"]["anchor_id"]
+    assert payload["attestation"]["attestation_hash"]
+    assert payload["attestation"]["heads"]["state_snapshot_hash"]
+    assert payload["verification"]["valid"] is True
+    assert payload["verification"]["current"] is True
+    assert payload["verification"]["authenticated_current_state"] is True
+
+
+def test_constitutional_status_reports_anchor_authentication(
+    initialized_shell,
+    runtime_paths: RuntimePaths,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shell = _ready_shell(initialized_shell, runtime_paths)
+    passphrase = initialized_shell[1]
+    _persist_advise(shell)
+
+    shell.run(
+        [
+            "--runtime-root",
+            str(runtime_paths.runtime_root),
+            "--json",
+            "constitutional",
+            "anchor",
+            "bind",
+            "--passphrase",
+            passphrase,
+        ]
+    )
+    _ = capsys.readouterr()
+
+    exit_code = shell.run(
+        [
+            "--runtime-root",
+            str(runtime_paths.runtime_root),
+            "--json",
+            "constitutional",
+            "status",
+        ]
+    )
+    status = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert status["anchor_attestation"]["valid"] is True
+    assert status["anchor_attestation"]["current"] is True
+    assert status["anchor_attestation"]["authenticated_current_state"] is True
+    assert status["anchor_attestation"]["attestation_count"] == 1
+
+
+def test_new_constitutional_write_makes_anchor_attestation_stale(
+    initialized_shell,
+    runtime_paths: RuntimePaths,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shell = _ready_shell(initialized_shell, runtime_paths)
+    passphrase = initialized_shell[1]
+    state = _persist_advise(shell)
+
+    shell.run(
+        [
+            "--runtime-root",
+            str(runtime_paths.runtime_root),
+            "--json",
+            "constitutional",
+            "anchor",
+            "bind",
+            "--passphrase",
+            passphrase,
+        ]
+    )
+    _ = capsys.readouterr()
+
+    later = time.time() + 1.0
+    shell.constitutional_store.save(
+        state,
+        written_at=later,
+        now=later,
+    )
+
+    exit_code = shell.run(
+        [
+            "--runtime-root",
+            str(runtime_paths.runtime_root),
+            "--json",
+            "constitutional",
+            "anchor",
+            "verify",
+        ]
+    )
+    verification = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert verification["valid"] is True
+    assert verification["current"] is False
+    assert verification["authenticated_current_state"] is False
+    assert "stale" in verification["reason"].lower()
+
+
+def test_rebinding_after_new_write_restores_current_authentication(
+    initialized_shell,
+    runtime_paths: RuntimePaths,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shell = _ready_shell(initialized_shell, runtime_paths)
+    passphrase = initialized_shell[1]
+    state = _persist_advise(shell)
+
+    shell.run(
+        [
+            "--runtime-root",
+            str(runtime_paths.runtime_root),
+            "--json",
+            "constitutional",
+            "anchor",
+            "bind",
+            "--passphrase",
+            passphrase,
+        ]
+    )
+    first = json.loads(capsys.readouterr().out)["attestation"]
+
+    later = time.time() + 1.0
+    shell.constitutional_store.save(
+        state,
+        written_at=later,
+        now=later,
+    )
+
+    exit_code = shell.run(
+        [
+            "--runtime-root",
+            str(runtime_paths.runtime_root),
+            "--json",
+            "constitutional",
+            "anchor",
+            "bind",
+            "--passphrase",
+            passphrase,
+        ]
+    )
+    second = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert (
+        second["attestation"]["previous_attestation_hash"]
+        == first["attestation_hash"]
+    )
+    assert second["verification"]["valid"] is True
+    assert second["verification"]["current"] is True
+    assert second["verification"]["attestation_count"] == 2
+
+
+def test_constitutional_anchor_bind_wrong_passphrase_fails_without_attestation(
+    initialized_shell,
+    runtime_paths: RuntimePaths,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shell = _ready_shell(initialized_shell, runtime_paths)
+    _persist_advise(shell)
+
+    with pytest.raises(SystemExit):
+        shell.run(
+            [
+                "--runtime-root",
+                str(runtime_paths.runtime_root),
+                "constitutional",
+                "anchor",
+                "bind",
+                "--passphrase",
+                "wrong-passphrase",
+            ]
+        )
+    captured = capsys.readouterr()
+
+    assert "Constitutional Anchor bind failed" in captured.err
+    assert not (
+        runtime_paths.runtime_root
+        / "constitutional"
+        / "anchor_attestations.jsonl"
+    ).exists()
