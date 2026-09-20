@@ -117,9 +117,9 @@ def run_constitutional_shell_shadow(
     evaluated_at = time.time() if now is None else float(now)
     active_router = router or CoachRouter()
     seeds = build_shell_candidate_seeds(think_bundle, router=active_router)
-    candidates = tuple(
-        _candidate_from_seed(seed, now=evaluated_at)
-        for seed in seeds
+    candidates = build_shell_route_candidates(
+        seeds,
+        now=evaluated_at,
     )
     request = RelationalRoutingRequest.create(
         required_capabilities=("coach",),
@@ -272,6 +272,18 @@ def _safety_seeds(reason: str) -> tuple[ShellCandidateSeed, ...]:
             base_cost=10.0,
             reasons=(reason, "specialized route deprioritized under safety condition"),
         ),
+    )
+
+
+def build_shell_route_candidates(
+    seeds: tuple[ShellCandidateSeed, ...] | list[ShellCandidateSeed],
+    *,
+    now: float,
+) -> tuple[RouteCandidate, ...]:
+    """Create routing-evaluation-only candidates from deterministic seeds."""
+    return tuple(
+        _candidate_from_seed(seed, now=now)
+        for seed in seeds
     )
 
 
