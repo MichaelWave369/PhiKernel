@@ -515,9 +515,7 @@ def test_illegal_shadow_to_bounded_transition_is_rejected(tmp_path) -> None:
         ),
     )
 
-    with pytest.raises(
-        (ConstitutionalPersistenceLineageError, Exception)
-    ):
+    with pytest.raises(ConstitutionalPersistenceLineageError):
         store.save(forced_revision, written_at=140.0, now=140.0)
 
 
