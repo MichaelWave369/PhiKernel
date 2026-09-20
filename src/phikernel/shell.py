@@ -9,6 +9,8 @@ persisted constitutional state through:
     phik constitutional status
     phik constitutional route <prompt>
     phik constitutional action ...
+    phik constitutional recovery status
+    phik constitutional recovery reconcile
 
 The legacy `phik route` and `phik ask` commands remain unchanged and
 authoritative. Constitutional commands consume validated persisted authority;
@@ -39,6 +41,11 @@ from phikernel.constitutional_store import (
     ConstitutionalPersistenceError,
     ConstitutionalStateStore,
     PersistedConstitutionalState,
+)
+from phikernel.constitutional_recovery import (
+    ConstitutionalRecoveryError,
+    inspect_action_recovery,
+    reconcile_action_recovery,
 )
 from phikernel.router import CoachReply, CoachRouter, render_reply, select_runtime_adapter
 from phikernel.trust_runtime import (
@@ -507,6 +514,50 @@ class PhiKernelShell:
         )
         return record
 
+    def cmd_constitutional_recovery_status(
+        self,
+        args: argparse.Namespace,
+    ) -> dict[str, Any]:
+        """Inspect crash recovery state without executing or mutating."""
+        try:
+            inspection = inspect_action_recovery(
+                self.constitutional_store,
+                action_journal=ConstitutionalActionJournal(
+                    self.paths.runtime_root
+                ),
+            )
+        except (
+            ConstitutionalPersistenceError,
+            ConstitutionalActionError,
+            ConstitutionalRecoveryError,
+        ) as exc:
+            raise ShellError(
+                f"Constitutional recovery inspection failed: {exc}"
+            ) from exc
+        return inspection.to_record()
+
+    def cmd_constitutional_recovery_reconcile(
+        self,
+        args: argparse.Namespace,
+    ) -> dict[str, Any]:
+        """Reconcile one recoverable crash state without calling an executor."""
+        try:
+            result = reconcile_action_recovery(
+                self.constitutional_store,
+                action_journal=ConstitutionalActionJournal(
+                    self.paths.runtime_root
+                ),
+            )
+        except (
+            ConstitutionalPersistenceError,
+            ConstitutionalActionError,
+            ConstitutionalRecoveryError,
+        ) as exc:
+            raise ShellError(
+                f"Constitutional recovery failed: {exc}"
+            ) from exc
+        return result.to_record()
+
     def _load_constitutional_state(
         self,
     ) -> tuple[PersistedConstitutionalState, bool, str | None, int]:
@@ -824,6 +875,29 @@ class PhiKernelShell:
             handler=self.cmd_constitutional_action
         )
 
+        constitutional_recovery = constitutional_sub.add_parser(
+            "recovery",
+            help="Inspect or reconcile interrupted constitutional actions",
+        )
+        recovery_sub = constitutional_recovery.add_subparsers(
+            dest="constitutional_recovery_command",
+            required=True,
+        )
+        recovery_status = recovery_sub.add_parser(
+            "status",
+            help="Inspect recovery state without mutation or execution",
+        )
+        recovery_status.set_defaults(
+            handler=self.cmd_constitutional_recovery_status
+        )
+        recovery_reconcile = recovery_sub.add_parser(
+            "reconcile",
+            help="Reconcile recoverable crash state without replaying execution",
+        )
+        recovery_reconcile.set_defaults(
+            handler=self.cmd_constitutional_recovery_reconcile
+        )
+
         control = subparsers.add_parser("control", help="Apply operator runtime-control actions")
         control.add_argument(
             "action",
@@ -869,6 +943,8 @@ class PhiKernelShell:
             return self._render_constitutional_route(result)
         if command == "constitutional" and args.constitutional_command == "action":
             return self._render_constitutional_action(result)
+        if command == "constitutional" and args.constitutional_command == "recovery":
+            return self._render_constitutional_recovery(result, args)
         return json.dumps(result, indent=2, sort_keys=True)
 
     def _render_status(self, result: dict[str, Any]) -> str:
@@ -1050,6 +1126,38 @@ class PhiKernelShell:
             f"Action Journal Entries: {result.get('action_journal_count')}",
         ]
         return "\n".join(lines)
+
+    def _render_constitutional_recovery(
+        self,
+        result: dict[str, Any],
+        args: argparse.Namespace,
+    ) -> str:
+        if args.constitutional_recovery_command == "status":
+            return "\n".join(
+                [
+                    ":: PHIKERNEL CONSTITUTIONAL RECOVERY STATUS ::",
+                    f"Status: {result.get('status')}",
+                    f"Mode: {result.get('mode')}",
+                    f"Revision: {result.get('revision')}",
+                    f"Transaction: {result.get('transaction_id')}",
+                    f"Action: {result.get('action_id')}",
+                    f"Can Reconcile Without Execution: {result.get('can_reconcile_without_execution')}",
+                    f"Reason: {result.get('reason')}",
+                ]
+            )
+        before = result.get("inspection_before") or {}
+        return "\n".join(
+            [
+                ":: PHIKERNEL CONSTITUTIONAL RECOVERY ::",
+                f"Before: {before.get('status')}",
+                f"Recovery: {result.get('recovery_kind')}",
+                f"Resulting Mode: {result.get('resulting_mode')}",
+                f"Resulting Revision: {result.get('resulting_revision')}",
+                f"State Changed: {result.get('state_changed')}",
+                f"Executor Called: {result.get('executor_called')}",
+                f"Final Snapshot: {result.get('final_snapshot_hash')}",
+            ]
+        )
 
     def _render_constitutional_route(self, result: dict[str, Any]) -> str:
         comparison = result.get("shadow_comparison") or {}
