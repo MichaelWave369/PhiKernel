@@ -287,6 +287,18 @@ def _validate_successor(
             "promotion revision may advance by at most one per persisted transition"
         )
 
+    if after.revision == before.revision + 1:
+        allowed = {
+            (SHADOW, ADVISE),
+            (ADVISE, BOUNDED_CONTROL),
+            (ADVISE, SHADOW),
+            (BOUNDED_CONTROL, SHADOW),
+        }
+        if (before.mode, after.mode) not in allowed:
+            raise ConstitutionalPersistenceLineageError(
+                f"illegal promotion transition {before.mode} -> {after.mode}"
+            )
+
     if after.revision == before.revision:
         if after.mode != before.mode:
             raise ConstitutionalPersistenceLineageError(
@@ -364,6 +376,14 @@ def _validate_state(
         if collapse is None:
             raise ConstitutionalPersistenceLineageError(
                 "non-genesis SHADOW requires collapse receipt"
+            )
+        if collapse.prior_mode not in {ADVISE, BOUNDED_CONTROL}:
+            raise ConstitutionalPersistenceLineageError(
+                "collapse receipt must begin from promoted mode"
+            )
+        if collapse.resulting_revision != collapse.prior_revision + 1:
+            raise ConstitutionalPersistenceLineageError(
+                "collapse receipt must advance revision exactly once"
             )
         if collapse.resulting_mode != SHADOW:
             raise ConstitutionalPersistenceLineageError(
@@ -458,6 +478,14 @@ def _validate_advise_receipt(
     promotion: PromotionState,
     receipt: PromotionAuthorizationReceipt,
 ) -> None:
+    if receipt.prior_mode != SHADOW:
+        raise ConstitutionalPersistenceLineageError(
+            "ADVISE authorization receipt must begin from SHADOW"
+        )
+    if receipt.prior_revision < 0:
+        raise ConstitutionalPersistenceLineageError(
+            "ADVISE authorization prior revision must be >= 0"
+        )
     if receipt.resulting_mode != ADVISE:
         raise ConstitutionalPersistenceLineageError(
             "promotion receipt does not result in ADVISE"
@@ -518,6 +546,18 @@ def _validate_bounded_lineage(
         raise ConstitutionalPersistenceLineageError(
             "control grant human seal does not match promotion state"
         )
+    if grant.promotion_proposal_id != control_receipt.proposal_id:
+        raise ConstitutionalPersistenceLineageError(
+            "control grant proposal id does not match control receipt"
+        )
+    if grant.witness_report_id != control_receipt.witness_report_id:
+        raise ConstitutionalPersistenceLineageError(
+            "control grant witness report id does not match control receipt"
+        )
+    if grant.witness_report_hash != control_receipt.witness_report_hash:
+        raise ConstitutionalPersistenceLineageError(
+            "control grant witness report hash does not match control receipt"
+        )
     if grant.grant_id != control_receipt.grant_id:
         raise ConstitutionalPersistenceLineageError(
             "control receipt grant id does not match control grant"
@@ -574,6 +614,34 @@ def _validate_bounded_lineage(
         raise ConstitutionalPersistenceLineageError(
             "control grant warrant scopes do not match contract"
         )
+    if grant.warrant.issuer != grant.human_actor_id:
+        raise ConstitutionalPersistenceLineageError(
+            "control grant warrant issuer does not match human actor"
+        )
+    expected_metadata = {
+        "control_contract_id": contract.contract_id,
+        "control_contract_hash": contract.contract_hash,
+        "control_promotion_proposal_id": grant.promotion_proposal_id,
+        "control_witness_report_hash": grant.witness_report_hash,
+        "human_seal_id": grant.human_seal_id,
+    }
+    for key, expected in expected_metadata.items():
+        if grant.warrant.metadata.get(key) != expected:
+            raise ConstitutionalPersistenceLineageError(
+                f"control grant warrant metadata mismatch for '{key}'"
+            )
+    if session.warrant.issuer != grant.warrant.issuer:
+        raise ConstitutionalPersistenceLineageError(
+            "control session warrant issuer changed from grant"
+        )
+    if session.warrant.issued_at != grant.warrant.issued_at:
+        raise ConstitutionalPersistenceLineageError(
+            "control session warrant issued_at changed from grant"
+        )
+    if session.warrant.metadata != grant.warrant.metadata:
+        raise ConstitutionalPersistenceLineageError(
+            "control session warrant metadata changed from grant"
+        )
     if session.warrant.expires_at != grant.expires_at:
         raise ConstitutionalPersistenceLineageError(
             "control session warrant expiry does not match grant"
@@ -593,6 +661,42 @@ def _validate_bounded_lineage(
     if now >= grant.expires_at or session.warrant.is_expired(now=now):
         raise ConstitutionalPersistenceExpiredError(
             "persisted bounded-control grant has expired"
+        )
+
+    grant_limits = {budget.kind: budget.limit for budget in grant.warrant.budgets}
+    contract_limits = {
+        budget.kind: budget.limit for budget in contract.resource_limits
+    }
+    if grant_limits != contract_limits:
+        raise ConstitutionalPersistenceLineageError(
+            "control grant warrant budgets do not match contract"
+        )
+    if any(budget.spent != 0 for budget in grant.warrant.budgets):
+        raise ConstitutionalPersistenceLineageError(
+            "persisted control grant must retain original unspent warrant"
+        )
+
+    usage = {item.rule_id: item.count for item in session.action_usage}
+    rule_limits = {rule.rule_id: rule.max_count for rule in contract.action_rules}
+    if set(usage) != set(rule_limits):
+        raise ConstitutionalPersistenceLineageError(
+            "control session action usage does not match contract rules"
+        )
+    if any(usage[rule_id] > limit for rule_id, limit in rule_limits.items()):
+        raise ConstitutionalPersistenceLineageError(
+            "control session action usage exceeds contract rule limit"
+        )
+    if sum(usage.values()) != session.actions_used:
+        raise ConstitutionalPersistenceLineageError(
+            "control session action count does not match per-rule usage"
+        )
+    if session.actions_used > contract.max_total_actions:
+        raise ConstitutionalPersistenceLineageError(
+            "control session exceeds total action limit"
+        )
+    if session.clock_ticks_used > contract.max_clock_ticks:
+        raise ConstitutionalPersistenceLineageError(
+            "control session exceeds clock budget"
         )
 
     _validate_budget_lineage(grant.warrant, session.warrant)
