@@ -20,6 +20,7 @@ from phikernel.control_witness import (
     ControlPromotionReceipt,
     ControlSession,
 )
+from phikernel.heart import RuntimeBridge
 from phikernel.shell import PhiKernelShell, RuntimePaths
 from phikernel.warrant import ResourceBudget, Warrant
 from phikernel.witness_bench import (
@@ -992,5 +993,164 @@ def test_constitutional_action_adapter_is_allowlisted_by_parser(
                 "1",
                 "--rollback-ref",
                 "rollback:no-side-effect",
+            ]
+        )
+
+
+class _RecoveryInterruptingBridge(RuntimeBridge):
+    def execute(self, payload, *, adapter, mode):
+        raise KeyboardInterrupt()
+
+
+def _create_shell_pending_action(
+    shell: PhiKernelShell,
+    runtime_paths: RuntimePaths,
+) -> None:
+    _persist_bounded(shell)
+    shell._ensure_runtime_services()
+    shell.runtime_bridge = _RecoveryInterruptingBridge()
+
+    with pytest.raises(KeyboardInterrupt):
+        shell.run(
+            [
+                "--runtime-root",
+                str(runtime_paths.runtime_root),
+                "--json",
+                "constitutional",
+                "action",
+                "--adapter",
+                "legacy",
+                "--json-text",
+                '{"prompt":"crash fixture"}',
+                "--resource",
+                "compute_ms=10",
+                "--clock-ticks",
+                "2",
+                "--evidence",
+                "evidence:shell-approved",
+                "--rollback-ref",
+                "rollback:no-side-effect",
+            ]
+        )
+
+
+def test_constitutional_recovery_status_is_clean_without_pending_action(
+    initialized_shell,
+    runtime_paths: RuntimePaths,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shell = _ready_shell(initialized_shell, runtime_paths)
+    _persist_bounded(shell)
+
+    exit_code = shell.run(
+        [
+            "--runtime-root",
+            str(runtime_paths.runtime_root),
+            "--json",
+            "constitutional",
+            "recovery",
+            "status",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["status"] == "CLEAN"
+    assert payload["mode"] == BOUNDED_CONTROL
+    assert payload["can_reconcile_without_execution"] is False
+
+
+def test_constitutional_recovery_cli_reconciles_unknown_pending_without_execution(
+    initialized_shell,
+    runtime_paths: RuntimePaths,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shell = _ready_shell(initialized_shell, runtime_paths)
+    _create_shell_pending_action(shell, runtime_paths)
+    _ = capsys.readouterr()
+
+    status_code = shell.run(
+        [
+            "--runtime-root",
+            str(runtime_paths.runtime_root),
+            "--json",
+            "constitutional",
+            "recovery",
+            "status",
+        ]
+    )
+    status = json.loads(capsys.readouterr().out)
+
+    assert status_code == 0
+    assert status["status"] == "PENDING_UNKNOWN"
+    assert status["mode"] == BOUNDED_CONTROL
+    assert status["can_reconcile_without_execution"] is True
+
+    reconcile_code = shell.run(
+        [
+            "--runtime-root",
+            str(runtime_paths.runtime_root),
+            "--json",
+            "constitutional",
+            "recovery",
+            "reconcile",
+        ]
+    )
+    recovery = json.loads(capsys.readouterr().out)
+    loaded = shell.constitutional_store.load()
+
+    assert reconcile_code == 0
+    assert recovery["inspection_before"]["status"] == "PENDING_UNKNOWN"
+    assert recovery["recovery_kind"] == "UNKNOWN_OUTCOME_NO_REPLAY_COLLAPSE"
+    assert recovery["executor_called"] is False
+    assert recovery["resulting_mode"] == SHADOW
+    assert loaded.promotion_state.mode == SHADOW
+    assert loaded.control_session is None
+
+    shell._ensure_runtime_services()
+    assert isinstance(shell.runtime_bridge, _RecoveryInterruptingBridge)
+
+
+def test_recovery_reconcile_on_clean_state_is_noop(
+    initialized_shell,
+    runtime_paths: RuntimePaths,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shell = _ready_shell(initialized_shell, runtime_paths)
+
+    exit_code = shell.run(
+        [
+            "--runtime-root",
+            str(runtime_paths.runtime_root),
+            "--json",
+            "constitutional",
+            "recovery",
+            "reconcile",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["recovery_kind"] == "NOOP_CLEAN"
+    assert payload["state_changed"] is False
+    assert payload["executor_called"] is False
+    assert payload["resulting_mode"] == SHADOW
+
+
+def test_recovery_parser_has_no_executor_or_payload_options(
+    initialized_shell,
+    runtime_paths: RuntimePaths,
+) -> None:
+    shell = _ready_shell(initialized_shell, runtime_paths)
+    parser = shell._build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "constitutional",
+                "recovery",
+                "reconcile",
+                "--adapter",
+                "legacy",
             ]
         )
