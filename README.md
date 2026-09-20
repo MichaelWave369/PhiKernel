@@ -32,6 +32,7 @@ v0.2 establishes a tested constitutional runtime core for:
 - evidence-before-promotion
 - human-gated bounded control
 - mode-aware constitutional orchestration
+- persistent constitutional state with hash-chained history
 
 The current CLI still exposes the original substrate and legacy coach-routing path. The v0.2 constitutional layers are implemented as Python runtime APIs and are not yet fully wired into `phik route` / `phik ask`.
 
@@ -324,6 +325,34 @@ Quarantine and seal override routing mode. Review/recovery state can hold steeri
 
 The orchestrator licenses actions but does not itself perform external side effects.
 
+**Persistent constitutional state**  
+`constitutional_store.py`
+
+PhiKernel persists constitutional authority state separately from ordinary runtime
+configuration.
+
+The store keeps:
+
+- one canonical `.phik-runtime/constitutional/state.json` snapshot
+- append-only `.phik-runtime/constitutional/history.jsonl`
+- deterministic SHA-256 linkage between successive snapshots
+- typed reconstruction of promotion state, authorization receipts, control
+  contract, bounded grant, dedicated warrant, and live control session
+- fail-closed lineage checks on load
+- monotonic session resource/action/clock accounting
+
+Missing constitutional state means genesis `SHADOW`. Existing malformed,
+tampered, stale, expired, or lineage-inconsistent state does **not** silently
+reset to SHADOW.
+
+The hash chain is an integrity/replay mechanism, not a cryptographic human
+signature. Binding persisted snapshots directly to the Anchor signing identity
+remains a future hardening step.
+
+At this milestone the store is implemented as a Python runtime API. The shell
+does not yet automatically resume ADVISE or BOUNDED_CONTROL from persisted
+state.
+
 ---
 
 ## Runtime and trust controls
@@ -387,7 +416,9 @@ PhiKernel/
 │   ├── routing_shadow.py
 │   ├── witness_bench.py
 │   ├── control_witness.py
-│   └── constitutional_runtime.py
+│   ├── constitutional_runtime.py
+│   ├── constitutional_shell.py
+│   └── constitutional_store.py
 └── tests/
     └── ...
 ```
@@ -505,9 +536,11 @@ That shell path is intentionally **SHADOW-only**. It runs the constitutional
 orchestrator and Crane Fly vNext beside the legacy router, but does not
 manufacture ADVISE or BOUNDED_CONTROL promotion state from command-line flags.
 
-ADVISE and BOUNDED_CONTROL still require persisted/verifiable promotion,
+ADVISE and BOUNDED_CONTROL require persisted/verifiable promotion,
 human-authorization, grant, and session lineage before they can become shell
-runtime modes.
+runtime modes. The constitutional state store now provides that persistence
+primitive, but automatic shell resume is deliberately a separate integration
+milestone.
 
 This keeps the repository from confusing:
 
@@ -618,6 +651,7 @@ behavioral witness
 human-gated promotion
 finite bounded control
 constitutional orchestration
+persistent constitutional state
 ```
 
 The result is not an autonomous operating system and not a generic agent framework.
