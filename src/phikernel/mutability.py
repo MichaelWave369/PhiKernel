@@ -234,6 +234,41 @@ class HumanAuthoritySeal:
             return False, verification.reason
         return True, "human authority seal signature verified successfully"
 
+    @classmethod
+    def from_record(cls, record: dict[str, Any]) -> "HumanAuthoritySeal":
+        try:
+            seal = cls(
+                version=str(record.get("version", MUTABILITY_VERSION)),
+                domain=str(
+                    record.get(
+                        "domain",
+                        HUMAN_AUTHORITY_SEAL_DOMAIN,
+                    )
+                ),
+                seal_id=str(record["seal_id"]),
+                actor_id=str(record["actor_id"]),
+                actor_kind=str(record["actor_kind"]),
+                authority_ref=str(record["authority_ref"]),
+                issued_at=float(record["issued_at"]),
+                metadata=dict(record.get("metadata", {})),
+                anchor_id=str(record.get("anchor_id", "")),
+                anchor_manifest_hash=str(
+                    record.get("anchor_manifest_hash", "")
+                ),
+                signature=str(record.get("signature", "")),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise MutabilityError(
+                "human authority seal record is malformed"
+            ) from exc
+
+        expected_hash = record.get("payload_hash")
+        if expected_hash is not None and expected_hash != seal.payload_hash():
+            raise MutabilityError(
+                "human authority seal payload hash mismatch"
+            )
+        return seal
+
 
 @dataclass(frozen=True)
 class ConstitutionClause:
