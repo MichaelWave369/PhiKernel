@@ -381,14 +381,12 @@ def test_bounded_control_requires_selected_route_actor_to_match_control_actor() 
 
 def test_bounded_control_requires_selected_route_operation_and_target_match() -> None:
     contract, grant, session = _control_session()
-    action = _control_action()
+    action = _control_action(operation="write")
     selected = _candidate(
         "route:flow",
         "node:flow",
         base_cost=0.0,
         warrant=session.warrant,
-        operation="write",
-        target="tool/python",
     )
 
     result = orchestrate_runtime(
@@ -408,6 +406,40 @@ def test_bounded_control_requires_selected_route_operation_and_target_match() ->
     assert result.mode_after == SHADOW
     assert result.execution_licensed is False
     assert "operation" in result.reason
+
+
+def test_bounded_control_rejects_mismatched_human_seal_lineage() -> None:
+    contract, grant, session = _control_session()
+    forged_state = PromotionState(
+        mode=BOUNDED_CONTROL,
+        revision=2,
+        authorized_by_seal_id="seal:someone-else",
+    )
+    selected = _candidate(
+        "route:flow",
+        "node:flow",
+        base_cost=0.0,
+        warrant=session.warrant,
+    )
+
+    result = orchestrate_runtime(
+        _bundle(),
+        forged_state,
+        _request(),
+        (selected,),
+        bindings=_bindings(),
+        control_contract=contract,
+        control_grant=grant,
+        control_session=session,
+        control_action=_control_action(),
+        now=120.0,
+    )
+
+    assert result.disposition == BOUNDED_REFUSED
+    assert result.mode_after == SHADOW
+    assert result.execution_licensed is False
+    assert result.control_session_after.stopped is True
+    assert "seal lineage" in result.reason
 
 
 def test_bounded_control_requires_relational_route_to_use_control_session_warrant() -> None:
