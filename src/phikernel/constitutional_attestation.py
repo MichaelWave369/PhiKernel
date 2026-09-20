@@ -289,7 +289,12 @@ class ConstitutionalAttestationStore:
             if attested_at is None
             else float(attested_at)
         )
-        anchor_verification = self.anchor_service.verify_anchor()
+        try:
+            anchor_verification = self.anchor_service.verify_anchor()
+        except StateAnchorError as exc:
+            raise ConstitutionalAttestationSigningError(
+                f"cannot attest constitutional state because Anchor is unavailable: {exc}"
+            ) from exc
         if not anchor_verification.valid:
             raise ConstitutionalAttestationSigningError(
                 "cannot attest constitutional state because Anchor "
@@ -315,7 +320,12 @@ class ConstitutionalAttestationStore:
             if not history
             else history[-1].attestation_hash
         )
-        manifest = self.anchor_service.load_manifest()
+        try:
+            manifest = self.anchor_service.load_manifest()
+        except StateAnchorError as exc:
+            raise ConstitutionalAttestationSigningError(
+                f"cannot load Anchor manifest for attestation: {exc}"
+            ) from exc
 
         unsigned = ConstitutionalAttestation(
             attestation_id=str(uuid.uuid4()),
@@ -422,8 +432,21 @@ class ConstitutionalAttestationStore:
         """Verify Anchor identity, every signature, chain, and current heads."""
 
         current_heads = self.current_heads()
-        anchor_verification = self.anchor_service.verify_anchor()
-        manifest = self.anchor_service.load_manifest()
+        try:
+            anchor_verification = self.anchor_service.verify_anchor()
+            manifest = self.anchor_service.load_manifest()
+        except StateAnchorError as exc:
+            return ConstitutionalAttestationVerification(
+                valid=False,
+                current=False,
+                reason=f"Anchor is unavailable: {exc}",
+                anchor_id=None,
+                anchor_manifest_hash=None,
+                attestation_count=0,
+                latest_attestation_hash=None,
+                attested_heads=None,
+                current_heads=current_heads,
+            )
 
         if not anchor_verification.valid:
             return ConstitutionalAttestationVerification(
