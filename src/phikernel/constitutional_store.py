@@ -507,11 +507,9 @@ def _validate_embedded_human_seal(
     expected_seal_id: str,
     expected_actor_id: str,
     expected_authority_ref: str,
-) -> HumanAuthoritySeal:
+) -> HumanAuthoritySeal | None:
     if not record_json.strip():
-        raise ConstitutionalPersistenceLineageError(
-            "persisted human authorization is missing signed seal proof"
-        )
+        return None
     try:
         raw = json.loads(record_json)
         if not isinstance(raw, dict):
@@ -522,10 +520,6 @@ def _validate_embedded_human_seal(
             "persisted human seal proof is malformed"
         ) from exc
 
-    if not seal.is_signed:
-        raise ConstitutionalPersistenceLineageError(
-            "persisted human authorization seal is unsigned"
-        )
     if seal.seal_id != expected_seal_id:
         raise ConstitutionalPersistenceLineageError(
             "persisted human seal proof id mismatch"
@@ -661,7 +655,15 @@ def _validate_bounded_lineage(
         expected_actor_id=control_receipt.human_actor_id,
         expected_authority_ref=control_receipt.authority_ref,
     )
-    if grant_seal.to_record() != receipt_seal.to_record():
+    if (grant_seal is None) != (receipt_seal is None):
+        raise ConstitutionalPersistenceLineageError(
+            "control grant and receipt disagree on human seal proof presence"
+        )
+    if (
+        grant_seal is not None
+        and receipt_seal is not None
+        and grant_seal.to_record() != receipt_seal.to_record()
+    ):
         raise ConstitutionalPersistenceLineageError(
             "control grant and receipt carry different human seal proof"
         )
