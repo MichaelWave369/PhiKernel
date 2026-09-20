@@ -876,7 +876,7 @@ def authorize_bounded_control(
     report: ControlWitnessReport,
     human_seal: HumanAuthoritySeal,
     *,
-    anchor_service: Any,
+    anchor_service: Any | None = None,
     applied_at: float | None = None,
 ) -> tuple[PromotionState, BoundedControlGrant, ControlPromotionReceipt]:
     if state.mode != ADVISE:
