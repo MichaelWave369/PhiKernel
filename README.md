@@ -34,6 +34,8 @@ v0.2 establishes a tested constitutional runtime core for:
 - mode-aware constitutional orchestration
 - persistent constitutional state with hash-chained history
 - restart-safe bounded constitutional action transactions
+non-replaying crash reconciliation
+- non-replaying constitutional action crash recovery
 
 The current CLI still exposes the original substrate and legacy coach-routing path. The v0.2 constitutional layers are implemented as Python runtime APIs and are not yet fully wired into `phik route` / `phik ask`.
 
@@ -401,6 +403,50 @@ The action evidence journal lives at:
 
 and is independently SHA-256 hash-chained.
 
+**Constitutional action recovery**  
+`constitutional_recovery.py`
+
+Recovery is reconciliation, not retry.
+
+After a process interruption, PhiKernel compares the persisted control session
+with the hash-chained action journal:
+
+```text
+pending + LICENSED only
+→ execution outcome unknown
+→ NEVER replay
+→ verified no-op rollback for the v0.2 analysis-only executor
+→ terminal control collapse to SHADOW
+
+pending + LICENSED + OUTCOME
+→ apply the already-journaled outcome
+→ do not execute again
+→ persist completed session or terminal collapse
+
+completed state + OUTCOME + no COMMITTED marker
+→ repair the journal commit marker
+→ do not execute again
+
+expired active bounded lease
+→ structurally inspect for recovery only
+→ stop/revoke/collapse to SHADOW
+```
+
+Recovery may consume surviving evidence and reduce privilege. It may not refund
+spent resources, rewind action/clock accounting, create authority, or call an
+executor.
+
+The recovery shell surfaces are:
+
+```bash
+phik constitutional recovery status
+phik constitutional recovery reconcile
+```
+
+The structural recovery loader may inspect expired authority solely so it can be
+removed or so an already-receipted outcome can be finalized. It is not an
+alternate authorization path.
+
 ---
 
 ## Runtime and trust controls
@@ -467,7 +513,8 @@ PhiKernel/
 │   ├── constitutional_runtime.py
 │   ├── constitutional_shell.py
 │   ├── constitutional_store.py
-│   └── constitutional_action.py
+│   ├── constitutional_action.py
+│   └── constitutional_recovery.py
 └── tests/
     └── ...
 ```
@@ -565,6 +612,18 @@ The actor comes from the persisted control session. The operation is fixed to
 `execute`, and the target is derived from the allowlisted adapter. CLI input
 cannot substitute a different actor or arbitrary execution target.
 
+Inspect or reconcile an interrupted bounded action:
+
+```bash
+phik constitutional recovery status
+phik constitutional recovery reconcile
+```
+
+Recovery never reruns the action. If execution outcome is unknown, the v0.2
+analysis-only executor is treated with a verified no-op rollback and bounded
+privilege collapses to SHADOW. If an OUTCOME receipt survived, PhiKernel applies
+that evidence without executing again.
+
 With no persisted constitutional snapshot, the route command begins from
 genesis `SHADOW`. If a validated ADVISE snapshot exists, the shell resumes
 ADVISE and surfaces Crane Fly vNext as an advisory route while the legacy coach
@@ -627,6 +686,11 @@ consumes the bounded-control lease. It requires an exact contract match and
 persists the pending licensed action before invoking the executor. Successful
 or failed outcomes are receipted and written to the action journal before the
 session is unlocked or privilege is collapsed.
+
+`phik constitutional recovery status` inspects interrupted action state without
+mutation. `phik constitutional recovery reconcile` never calls the executor:
+it applies already-journaled OUTCOME evidence, repairs a missing COMMITTED
+marker, or conservatively collapses unknown/expired bounded authority.
 
 This keeps the repository from confusing:
 
