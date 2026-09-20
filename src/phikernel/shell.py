@@ -8,10 +8,13 @@ persisted constitutional state through:
 
     phik constitutional status
     phik constitutional route <prompt>
+    phik constitutional action ...
 
 The legacy `phik route` and `phik ask` commands remain unchanged and
 authoritative. Constitutional commands consume validated persisted authority;
-they do not manufacture ADVISE or BOUNDED_CONTROL from CLI flags.
+they do not manufacture ADVISE or BOUNDED_CONTROL from CLI flags. The action
+surface can consume only an exact persisted BOUNDED_CONTROL lease and an
+allowlisted normalized runtime-adapter target.
 """
 
 from dataclasses import dataclass
