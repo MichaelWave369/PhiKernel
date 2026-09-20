@@ -717,6 +717,7 @@ class PromotionAuthorizationReceipt:
     human_actor_id: str
     authority_ref: str
     applied_at: float
+    human_seal_record_json: str = ""
     authority_change: str = "NONE"
     routing_mode_change: str = HUMAN_AUTHORIZED_APPLIED
     steering_authority_change: str = "NONE"
@@ -729,6 +730,36 @@ class PromotionAuthorizationReceipt:
                 "promotion authorization must advance revision exactly once"
             )
         _require_hash("witness_report_hash", self.witness_report_hash)
+        if not self.human_seal_record_json.strip():
+            raise WitnessBenchError(
+                "promotion authorization receipt requires signed human seal proof"
+            )
+        try:
+            seal_record = json.loads(self.human_seal_record_json)
+        except json.JSONDecodeError as exc:
+            raise WitnessBenchError(
+                "promotion authorization human seal proof must be valid JSON"
+            ) from exc
+        if not isinstance(seal_record, dict):
+            raise WitnessBenchError(
+                "promotion authorization human seal proof must be a JSON object"
+            )
+        if seal_record.get("seal_id") != self.human_seal_id:
+            raise WitnessBenchError(
+                "promotion authorization seal proof id mismatch"
+            )
+        if seal_record.get("actor_id") != self.human_actor_id:
+            raise WitnessBenchError(
+                "promotion authorization seal proof actor mismatch"
+            )
+        if seal_record.get("authority_ref") != self.authority_ref:
+            raise WitnessBenchError(
+                "promotion authorization seal proof authority_ref mismatch"
+            )
+        if not seal_record.get("signature"):
+            raise WitnessBenchError(
+                "promotion authorization seal proof is unsigned"
+            )
         if self.authority_change != "NONE":
             raise WitnessBenchError(
                 "ADVISE promotion does not grant execution authority"
@@ -806,6 +837,7 @@ def authorize_promotion(
     report: WitnessBenchReport,
     human_seal: HumanAuthoritySeal,
     *,
+    anchor_service: Any,
     applied_at: float | None = None,
 ) -> tuple[PromotionState, PromotionAuthorizationReceipt]:
     if state.mode != proposal.base_mode:
@@ -839,6 +871,15 @@ def authorize_promotion(
     if human_seal.issued_at < proposal.created_at:
         raise WitnessBenchError(
             "human authorization seal may not predate promotion proposal"
+        )
+
+    valid_signature, signature_reason = human_seal.verify_anchor(
+        anchor_service
+    )
+    if not valid_signature:
+        raise WitnessBenchError(
+            "promotion requires Anchor-signed human authority seal: "
+            f"{signature_reason}"
         )
 
     metadata = human_seal.metadata
@@ -876,6 +917,12 @@ def authorize_promotion(
         human_actor_id=human_seal.actor_id,
         authority_ref=human_seal.authority_ref,
         applied_at=timestamp,
+        human_seal_record_json=json.dumps(
+            human_seal.to_record(),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ),
     )
     return updated, receipt
 
