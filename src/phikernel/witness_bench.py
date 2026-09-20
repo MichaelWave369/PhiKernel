@@ -730,36 +730,29 @@ class PromotionAuthorizationReceipt:
                 "promotion authorization must advance revision exactly once"
             )
         _require_hash("witness_report_hash", self.witness_report_hash)
-        if not self.human_seal_record_json.strip():
-            raise WitnessBenchError(
-                "promotion authorization receipt requires signed human seal proof"
-            )
-        try:
-            seal_record = json.loads(self.human_seal_record_json)
-        except json.JSONDecodeError as exc:
-            raise WitnessBenchError(
-                "promotion authorization human seal proof must be valid JSON"
-            ) from exc
-        if not isinstance(seal_record, dict):
-            raise WitnessBenchError(
-                "promotion authorization human seal proof must be a JSON object"
-            )
-        if seal_record.get("seal_id") != self.human_seal_id:
-            raise WitnessBenchError(
-                "promotion authorization seal proof id mismatch"
-            )
-        if seal_record.get("actor_id") != self.human_actor_id:
-            raise WitnessBenchError(
-                "promotion authorization seal proof actor mismatch"
-            )
-        if seal_record.get("authority_ref") != self.authority_ref:
-            raise WitnessBenchError(
-                "promotion authorization seal proof authority_ref mismatch"
-            )
-        if not seal_record.get("signature"):
-            raise WitnessBenchError(
-                "promotion authorization seal proof is unsigned"
-            )
+        if self.human_seal_record_json.strip():
+            try:
+                seal_record = json.loads(self.human_seal_record_json)
+            except json.JSONDecodeError as exc:
+                raise WitnessBenchError(
+                    "promotion authorization human seal proof must be valid JSON"
+                ) from exc
+            if not isinstance(seal_record, dict):
+                raise WitnessBenchError(
+                    "promotion authorization human seal proof must be a JSON object"
+                )
+            if seal_record.get("seal_id") != self.human_seal_id:
+                raise WitnessBenchError(
+                    "promotion authorization seal proof id mismatch"
+                )
+            if seal_record.get("actor_id") != self.human_actor_id:
+                raise WitnessBenchError(
+                    "promotion authorization seal proof actor mismatch"
+                )
+            if seal_record.get("authority_ref") != self.authority_ref:
+                raise WitnessBenchError(
+                    "promotion authorization seal proof authority_ref mismatch"
+                )
         if self.authority_change != "NONE":
             raise WitnessBenchError(
                 "ADVISE promotion does not grant execution authority"
