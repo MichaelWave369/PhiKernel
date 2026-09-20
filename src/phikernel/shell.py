@@ -4,13 +4,14 @@ from __future__ import annotations
 
 The shell retains the original substrate commands and deterministic legacy
 CoachRouter while adding explicit access to the constitutional runtime in
-SHADOW mode through:
+persisted constitutional state through:
 
+    phik constitutional status
     phik constitutional route <prompt>
 
 The legacy `phik route` and `phik ask` commands remain unchanged and
-authoritative. The constitutional command observes beside them; it does not
-manufacture ADVISE or BOUNDED_CONTROL authority.
+authoritative. Constitutional commands consume validated persisted authority;
+they do not manufacture ADVISE or BOUNDED_CONTROL from CLI flags.
 """
 
 from dataclasses import dataclass
@@ -24,7 +25,12 @@ import time
 
 from phikernel.anc_bridge import guard_output_commit, guard_service_request
 from phikernel.control_state import RuntimeControlState, apply_operator_action, load_runtime_control_state
-from phikernel.constitutional_shell import run_constitutional_shell_shadow
+from phikernel.constitutional_shell import run_constitutional_shell
+from phikernel.constitutional_store import (
+    ConstitutionalPersistenceError,
+    ConstitutionalStateStore,
+    PersistedConstitutionalState,
+)
 from phikernel.router import CoachReply, CoachRouter, render_reply, select_runtime_adapter
 from phikernel.trust_runtime import (
     build_operator_trust_state,
@@ -64,6 +70,7 @@ class PhiKernelShell:
         self.coherence_frame_file = paths.coherence_root / "coherence_frame.json"
         self.router = router or CoachRouter()
         self.runtime_bridge = None
+        self.constitutional_store = ConstitutionalStateStore(paths.runtime_root)
 
     def _ensure_runtime_services(self) -> None:
         if self.anchor_service is not None and self.capsule_store is not None:
@@ -333,17 +340,102 @@ class PhiKernelShell:
         bundle = self._build_think_bundle(args.prompt or "")
         return self.router.route(bundle)
 
+    def cmd_constitutional_status(self, args: argparse.Namespace) -> dict[str, Any]:
+        """Show validated persisted constitutional state without changing it."""
+        state, persisted, snapshot_hash, history_count = self._load_constitutional_state()
+
+        control = None
+        if state.control_grant is not None and state.control_session is not None:
+            control = {
+                "contract_id": state.control_grant.contract_id,
+                "grant_id": state.control_grant.grant_id,
+                "warrant_id": state.control_grant.warrant.warrant_id,
+                "expires_at": state.control_grant.expires_at,
+                "session_id": state.control_session.session_id,
+                "actions_used": state.control_session.actions_used,
+                "clock_ticks_used": state.control_session.clock_ticks_used,
+                "pending_action_id": state.control_session.pending_action_id,
+                "stopped": state.control_session.stopped,
+            }
+
+        return {
+            "constitutional_version": "0.2.0",
+            "persisted_state_present": persisted,
+            "snapshot_hash": snapshot_hash,
+            "history_count": history_count,
+            "mode": state.promotion_state.mode,
+            "revision": state.promotion_state.revision,
+            "last_receipt_id": state.promotion_state.last_receipt_id,
+            "authorized_by_seal_id": state.promotion_state.authorized_by_seal_id,
+            "advise_receipt_id": (
+                None
+                if state.advise_receipt is None
+                else state.advise_receipt.receipt_id
+            ),
+            "collapse_receipt_id": (
+                None
+                if state.collapse_receipt is None
+                else state.collapse_receipt.receipt_id
+            ),
+            "control": control,
+        }
+
     def cmd_constitutional_route(self, args: argparse.Namespace) -> dict[str, Any]:
-        """Run the v0.2 constitutional routing path in SHADOW mode only."""
+        """Route using validated persisted constitutional state."""
         self._ensure_runtime_services()
         bundle = self._build_think_bundle(args.prompt or "")
         control_state = load_runtime_control_state(self.paths.runtime_root)
-        result = run_constitutional_shell_shadow(
+        state, persisted, _, _ = self._load_constitutional_state()
+
+        result = run_constitutional_shell(
             bundle,
+            constitutional_state=state,
+            persisted_state_present=persisted,
             runtime_control_state=control_state,
             router=self.router,
         )
-        return result.to_record()
+
+        record = result.to_record()
+        record["automatic_collapse_persisted"] = False
+
+        if (
+            state.promotion_state.mode == "BOUNDED_CONTROL"
+            and result.runtime.mode_after == "SHADOW"
+            and result.runtime.collapse_receipt is not None
+        ):
+            collapsed = PersistedConstitutionalState(
+                promotion_state=result.runtime.promotion_state_after,
+                collapse_receipt=result.runtime.collapse_receipt,
+            )
+            snapshot = self.constitutional_store.save(
+                collapsed,
+                written_at=result.runtime.evaluated_at,
+                now=result.runtime.evaluated_at,
+            )
+            record["automatic_collapse_persisted"] = True
+            record["persisted_snapshot_hash_after"] = snapshot.snapshot_hash
+
+        return record
+
+    def _load_constitutional_state(
+        self,
+    ) -> tuple[PersistedConstitutionalState, bool, str | None, int]:
+        """Load constitutional state or genesis SHADOW; fail closed on bad persistence."""
+        try:
+            if not self.constitutional_store.exists():
+                return (
+                    PersistedConstitutionalState.genesis(),
+                    False,
+                    None,
+                    0,
+                )
+            snapshot = self.constitutional_store.load_snapshot()
+            history_count = len(self.constitutional_store.history())
+            return snapshot.state, True, snapshot.snapshot_hash, history_count
+        except ConstitutionalPersistenceError as exc:
+            raise ShellError(
+                f"Constitutional state failed validation: {exc}"
+            ) from exc
 
     def cmd_execute(self, args: argparse.Namespace) -> dict[str, Any]:
         self._ensure_runtime_services()
@@ -572,15 +664,21 @@ class PhiKernelShell:
             dest="constitutional_command",
             required=True,
         )
+        constitutional_status = constitutional_sub.add_parser(
+            "status",
+            help="Show validated persisted constitutional mode and lineage summary",
+        )
+        constitutional_status.set_defaults(handler=self.cmd_constitutional_status)
+
         constitutional_route = constitutional_sub.add_parser(
             "route",
-            help="Run Crane Fly vNext in SHADOW beside the legacy router",
+            help="Route using the validated persisted constitutional mode",
         )
         constitutional_route.add_argument(
             "prompt",
             nargs="?",
             default="",
-            help="Prompt to route through the constitutional SHADOW path",
+            help="Prompt to route through the constitutional runtime",
         )
         constitutional_route.set_defaults(handler=self.cmd_constitutional_route)
 
@@ -623,6 +721,8 @@ class PhiKernelShell:
             return self._render_capsule_restore(result)
         if command == "think":
             return self._render_think(result)
+        if command == "constitutional" and args.constitutional_command == "status":
+            return self._render_constitutional_status(result)
         if command == "constitutional" and args.constitutional_command == "route":
             return self._render_constitutional_route(result)
         return json.dumps(result, indent=2, sort_keys=True)
@@ -763,18 +863,45 @@ class PhiKernelShell:
             lines.append(f"Latest Capsule: {latest_capsule['capsule_id']} ({latest_capsule['capsule_type']})")
         return "\n".join(lines)
 
+    def _render_constitutional_status(self, result: dict[str, Any]) -> str:
+        control = result.get("control") or {}
+        lines = [
+            ":: PHIKERNEL CONSTITUTIONAL STATUS ::",
+            f"Persisted: {result.get('persisted_state_present')}",
+            f"Mode: {result.get('mode')}",
+            f"Revision: {result.get('revision')}",
+            f"Last Receipt: {result.get('last_receipt_id')}",
+            f"Human Seal: {result.get('authorized_by_seal_id')}",
+            f"History Entries: {result.get('history_count')}",
+        ]
+        if control:
+            lines.extend(
+                [
+                    f"Control Grant: {control.get('grant_id')}",
+                    f"Control Session: {control.get('session_id')}",
+                    f"Control Expires: {control.get('expires_at')}",
+                    f"Actions Used: {control.get('actions_used')}",
+                    f"Clock Ticks Used: {control.get('clock_ticks_used')}",
+                    f"Pending Action: {control.get('pending_action_id')}",
+                ]
+            )
+        return "\n".join(lines)
+
     def _render_constitutional_route(self, result: dict[str, Any]) -> str:
         comparison = result.get("shadow_comparison") or {}
         legacy = result.get("legacy_reply") or {}
         lines = [
             ":: PHIKERNEL CONSTITUTIONAL ROUTE ::",
             f"Mode: {result.get('shell_mode')}",
+            f"Persisted State: {result.get('persisted_state_present')}",
             f"Disposition: {result.get('disposition')}",
             f"Legacy Coach: {legacy.get('coach')}",
             f"Legacy Route: {result.get('legacy_route_key')}",
             f"vNext Route: {(result.get('vnext_receipt') or {}).get('selected_route_key')}",
+            f"Advisory Route: {result.get('advisory_route_key')}",
             f"Comparison: {comparison.get('comparison_state')}",
             f"Execution Licensed: {result.get('execution_licensed')}",
+            f"Automatic Collapse Persisted: {result.get('automatic_collapse_persisted')}",
             f"Reason: {result.get('reason')}",
         ]
         return "\n".join(lines)
